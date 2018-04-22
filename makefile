@@ -5,7 +5,7 @@ CC=g++
 LINK_FLAGS=-lodbc -lpthread
 
 ifeq ($(v), d)
-	CFLAGS += -g -D_DEBUG -D_Debug
+	CFLAGS += -g -O0 -D_DEBUG -D_Debug
 endif
 
 SRC=CommandParser.cpp \

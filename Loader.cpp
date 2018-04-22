@@ -148,6 +148,7 @@ void Loader::loadData() {
 
         debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
         if (fullQueue.empty() && producerCnt == 0) {
+            condFullQueueNotEmpty.notify_all();
             break;
         }
 
@@ -192,17 +193,20 @@ void Loader::loadData() {
         }
 
         debug_log("doing data loading...\n");
-        if (!SQL_SUCCEEDED(retcode = SQLExecute(hstmt))) {
-            debug_log("retcode:", retcode, "\n");
-            cn.diagError("SQLExecute");
-        }
+        //if (!SQL_SUCCEEDED(retcode = SQLExecute(hstmt))) {
+        //    debug_log("retcode:", retcode, "\n");
+        //    cn.diagError("SQLExecute");
+        //}
         rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
 
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
 
-        if (producerCnt == 0) break;
+        if (producerCnt == 0) {
+            condEmptyQueueNotFull.notify_all();
+            break;
+        }
 
         debug_log("loader>>size of empty queue:", emptyQueue.size(), "\n");
         emptyQueue.push(std::move(c));
@@ -241,7 +245,7 @@ void Loader::produceData() {
             condFullQueueNotEmpty.notify_one();
         }
     }
-    --producerCnt;
+    if(--producerCnt == 0) condFullQueueNotEmpty.notify_all();
 }
 
 void Loader::initTableMeta(Connection& cnxn) {
