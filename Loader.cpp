@@ -144,12 +144,12 @@ void Loader::loadData() {
     while (true) {
         std::unique_lock<std::mutex> lckFullQ{mFullQueue};
 
+        condFullQueueNotEmpty.wait(lckFullQ, [this]{return (!fullQueue.empty()) || (producerCnt == 0);});
+
+        debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
         if (fullQueue.empty() && producerCnt == 0) {
             break;
         }
-
-        condFullQueueNotEmpty.wait(lckFullQ, [this]{return !fullQueue.empty();});
-        debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
 
         DataContainer c = std::move(fullQueue.front());
         fullQueue.pop();
@@ -200,7 +200,9 @@ void Loader::loadData() {
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
 
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
-        condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return emptyQueue.size() < maxSize;});
+        condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
+
+        if (producerCnt == 0) break;
 
         debug_log("loader>>size of empty queue:", emptyQueue.size(), "\n");
         emptyQueue.push(std::move(c));

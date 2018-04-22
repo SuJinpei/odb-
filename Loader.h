@@ -70,6 +70,9 @@ struct Connection {
     }
 
     ~Connection() {
+        if (hstmt) {
+            SQLRETURN retcode = SQLFreeHandle(SQL_HANDLE_STMT, hstmt);
+        }
         if (hdbc) {
             SQLRETURN retcode = SQLDisconnect(hdbc);
             retcode = SQLFreeHandle(SQL_HANDLE_DBC, hdbc);
