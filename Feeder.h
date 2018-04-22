@@ -13,12 +13,33 @@ public:
 
     CSV_Stream& operator>>(std::string& s);
 
-    operator bool();
+    operator bool() const;
 
 private:
     std::istream &source;
     std::istringstream buffer;
     char comma;
+};
+
+class Rand_Stream {
+public:
+    Rand_Stream(size_t maxRow):maxR{maxRow}{};
+
+    Rand_Stream& operator>>(std::string& s);
+
+    operator bool() const;
+
+    bool fail() { return !isStateGood; }
+
+    void setColDesc(const std::vector<ColumnDesc> vc);
+
+private:
+    Random r;
+    std::vector<ColumnDesc> cdesc;
+    size_t maxR;
+    size_t rowsOuted;
+    size_t currentColumns = 0;
+    bool isStateGood = true;
 };
 
 class Feeder {
@@ -43,7 +64,7 @@ public:
 
     virtual bool putData(int r, int c, char *buf, const TableDesc& tbMeta);
 
-    virtual bool getNext(std::string& s) = 0;
+    virtual bool getNext(std::string& s);
 
 protected:
     bool _isWorkDone = false;
@@ -68,4 +89,20 @@ private:
     char sp;
     std::ifstream ifs;
     CSV_Stream icsvs;
+};
+
+class RandomFeeder: public Feeder {
+public:
+    RandomFeeder(size_t maxRows);
+
+    bool putData(int r, int c, char *buf, const TableDesc& tbMeta) override;
+
+    bool getNext(std::string& s) override;
+
+    bool isWorkDone() const override;
+
+private:
+    Rand_Stream rs;
+    size_t rowLoaded = 0;
+    size_t maxRows;
 };

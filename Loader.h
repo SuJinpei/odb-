@@ -97,6 +97,8 @@ public:
     void run();
     void loadData();
     void produceData();
+    void setNumConsumer(size_t n);
+    void setNumProducer(size_t n);
 
 private:
     void initTableMeta(Connection& cnxn);
@@ -124,6 +126,12 @@ private:
     LoaderCmd cmd;
     std::atomic_size_t producerCnt {0}; 
     std::atomic_size_t consumerCnt {0}; 
+    std::atomic_size_t totalLoadedRows {0};
+
+    size_t consumNumer = 1;
+    size_t producerNum = 1;
+
+    // statistics
     std::chrono::time_point<std::chrono::high_resolution_clock> tRunStart;
     std::chrono::time_point<std::chrono::high_resolution_clock> tLoadStart;
     std::chrono::time_point<std::chrono::high_resolution_clock> tLoadEnd;

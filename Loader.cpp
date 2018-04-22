@@ -17,7 +17,15 @@ void Loader::run() {
     std::vector<std::thread> vps;
     std::vector<std::thread> vcs;
 
-    for (size_t i = 0; i < 1; ++i) {
+    if (cmd.src == "rand") {
+        setNumProducer(cmd.parallel);
+        setNumConsumer(cmd.parallel);
+    }
+    else {
+        setNumConsumer(cmd.parallel);
+    }
+
+    for (size_t i = 0; i < producerNum; ++i) {
         std::thread tProducer{[&]{
             this->produceData();
         }};
@@ -25,7 +33,7 @@ void Loader::run() {
         ++producerCnt;
     }
 
-    for (size_t i = 0, mx = cmd.parallel; i < mx; ++i) {
+    for (size_t i = 0, mx = consumNumer; i < mx; ++i) {
         std::thread tLoader {
             [&]{
                 this->loadData();
@@ -48,6 +56,7 @@ void Loader::loadData() {
     Connection cn {cmd.dbcfg};
     bool isParameterBind = false;
     size_t lastRowCnt = 0;
+    size_t rowsLoaded = 0;
 
     // intialize table meta
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
@@ -187,6 +196,7 @@ void Loader::loadData() {
             debug_log("retcode:", retcode, "\n");
             cn.diagError("SQLExecute");
         }
+        rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
 
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
@@ -196,12 +206,15 @@ void Loader::loadData() {
         emptyQueue.push(std::move(c));
         condEmptyQueueNotEmpty.notify_one();
     }
+
+    totalLoadedRows += rowsLoaded;
     gLog.log<Log::INFO>("loading thread exit\n");
     if(--consumerCnt == 0) {
         tLoadEnd = std::chrono::high_resolution_clock::now();
-        gLog.log<Log::INFO>("loading time:",
-                std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tRunStart).count(), "\n");
-    }
+        auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
+        gLog.log<Log::INFO>("loading time:", tElapsed,
+                " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
+                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
 
 void Loader::produceData() {
@@ -268,9 +281,20 @@ Feeder* Loader::createFeeder() {
     if (cmd.src == "stdin") {
         return new StandardInputFeeder();
     }
+    if (cmd.src == "rand") {
+        return new RandomFeeder(cmd.maxRows);
+    }
     else {
         return new CSVFeeder(cmd.src, ' ');
     }
+}
+
+void Loader::setNumConsumer(size_t n) {
+    consumNumer = n;
+}
+
+void Loader::setNumProducer(size_t n) {
+    producerNum = n;
 }
 
 void Connection::diagError(const std::string& functionName) {

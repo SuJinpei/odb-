@@ -4,6 +4,9 @@
 #include <iostream>
 #include <vector>
 #include <mutex>
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
 
 #ifdef _DEBUG
     #define debug_log(args...) { \
@@ -53,13 +56,21 @@ public:
         DEBUG
     };
 
-    Log(std::ostream& os, LogLevel lv = ERROR)
+    Log(std::ostream& os, const LogLevel lv = ERROR)
         :_buffer{os}, logLevel{lv}{}
 
     template<Log::LogLevel lv, typename... Args>
         void log(Args const&... args) {
             if (lv <= logLevel) {
                 std::unique_lock<std::mutex> lckLog{mutexLog};
+                switch(lv) {
+                case Log::ERROR:
+                    _buffer << "[***ERROR***]\t"; break;
+                case Log::WARNING:
+                    _buffer << "[***WARNING***]\t"; break;
+                default:
+                    break;
+                }
                 print(_buffer, args...);
             }
         }
@@ -72,3 +83,16 @@ private:
 };
 
 extern Log gLog;
+
+class Random {
+public:
+    Random();
+    long rand_long(long lo, long hi);
+    double rand_double(double lo, double hi, size_t digit);
+    std::string rand_str(size_t len);
+    std::string fast_rand_str(size_t len);
+private:
+    std::string rand_char_seqs;
+    static const std::string chars;
+    drand48_data rand_buffer;
+};
