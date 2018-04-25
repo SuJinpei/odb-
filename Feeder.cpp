@@ -75,7 +75,8 @@ Rand_Stream& Rand_Stream::operator>>(std::string& s) {
         s = r.fast_rand_str(cdesc[currentColumns].Size -1);
         break;
     default:
-        gLog.log<Log::ERROR>("unsupported SQL type:", cdesc[currentColumns].Type, "\n");
+        gLog.log<Log::ERROR>("File:",__FILE__,", Line:", __LINE__, ", unsupported SQL type:",
+                             cdesc[currentColumns].Type, ",columns:", currentColumns, "\n");
         isStateGood = false;
     }
     if(++currentColumns == cdesc.size()) {
@@ -86,7 +87,7 @@ Rand_Stream& Rand_Stream::operator>>(std::string& s) {
 }
 
 Rand_Stream::operator bool() const {
-    return isStateGood && (rowsOuted < maxR);
+    return isStateGood && (rowsOuted <= maxR);
 }
 
 void Rand_Stream::setColDesc(const std::vector<ColumnDesc> vc) {

@@ -4,6 +4,10 @@
 #include "error.h"
 #include "Loader.h"
 
+#ifdef _TEST
+#include "TCPClient.h"
+#endif
+
 Loader::Loader(const LoaderCmd& command):cmd{command} {
     maxSize = cmd.parallel * 2;
     isUniqueFeeder = true;
@@ -57,6 +61,12 @@ void Loader::loadData() {
     bool isParameterBind = false;
     size_t lastRowCnt = 0;
     size_t rowsLoaded = 0;
+    SQLRETURN retcode = 0;
+    SQLHANDLE hdesc = NULL;
+
+#ifdef _TEST
+    TCPClient testcnn{"10.10.10.11", 8800};
+#endif
 
     // intialize table meta
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
@@ -97,15 +107,6 @@ void Loader::loadData() {
 
     lckTableMeta.unlock();
 
-    // prepare for load
-    SQLHANDLE hstmt = NULL;
-    SQLHDESC hdesc = NULL;
-    SQLRETURN retcode = SQLAllocHandle(SQL_HANDLE_STMT, cn.conn(), &hstmt);
-    if (!SQL_SUCCEEDED(retcode)) {
-        cn.diagError("Alloc Stmt");
-    }
-    debug_log("alloc stmt succeeded\n");
-
     // init batch
     debug_log("initialize batch insert\n");
 
@@ -114,28 +115,28 @@ void Loader::loadData() {
     
     debug_log("rowWidth:", rowWidth, "\n");
 
-    if (!SQL_SUCCEEDED(SQLSetStmtAttr(hstmt, SQL_ATTR_PARAM_BIND_TYPE, (SQLPOINTER)rowWidth, 0))) {
+    if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAM_BIND_TYPE, (SQLPOINTER)rowWidth, 0))) {
         cn.diagError("SQLSetStmtAttr");
 
     }
 
-    if (!SQL_SUCCEEDED(SQLSetStmtAttr(hstmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)cmd.rows, 0))) {
+    if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)cmd.rows, 0))) {
         cn.diagError("SQLSetStmtAttr");
     }
     lastRowCnt = cmd.rows;
 
-    if (!SQL_SUCCEEDED(SQLSetStmtAttr(hstmt, SQL_ATTR_PARAM_STATUS_PTR, pStatus.get(), 0))) {
+    if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAM_STATUS_PTR, pStatus.get(), 0))) {
         cn.diagError("SQLSetStmtAttr");
 
     }
 
-    if (!SQL_SUCCEEDED(SQLSetStmtAttr(hstmt, SQL_ATTR_PARAMS_PROCESSED_PTR, &processedRow, 0))) {
+    if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAMS_PROCESSED_PTR, &processedRow, 0))) {
         cn.diagError("SQLSetStmtAttr");
 
     }
 
     debug_log("load query:", loadQuery, "\n");
-    retcode = SQLPrepare(hstmt, (SQLCHAR*)loadQuery.c_str(), SQL_NTS);
+    retcode = SQLPrepare(cn.hstmt, (SQLCHAR*)loadQuery.c_str(), SQL_NTS);
     if (!SQL_SUCCEEDED(retcode)) {
         cn.diagError("SQLPrepare");
     }
@@ -163,14 +164,14 @@ void Loader::loadData() {
             size_t start = 0;
             debug_log("bind parameter\n");
             for (size_t i = 0, max = tableMeta.coldesc.size(); i < max; ++i) {
-                if (!SQL_SUCCEEDED(SQLBindParameter(hstmt, (SQLUSMALLINT)(i + 1), SQL_PARAM_INPUT, SQL_C_CHAR, tableMeta.coldesc[i].Type,
+                if (!SQL_SUCCEEDED(SQLBindParameter(cn.hstmt, (SQLUSMALLINT)(i + 1), SQL_PARAM_INPUT, SQL_C_CHAR, tableMeta.coldesc[i].Type,
                                                     tableMeta.coldesc[i].Size, tableMeta.coldesc[i].Decimal, (SQLPOINTER)(c.buf + start),
                                                     tableMeta.coldesc[i].Size, (SQLLEN*)(c.buf + start + tableMeta.coldesc[i].Size)))) {
                     cn.diagError("SQLBindParameter");
                 }
                 start += tableMeta.coldesc[i].Size + sizeof(SQLLEN);
             }
-            if (!SQL_SUCCEEDED(SQLGetStmtAttr(hstmt, SQL_ATTR_APP_PARAM_DESC, &hdesc, 0, NULL))) {
+            if (!SQL_SUCCEEDED(SQLGetStmtAttr(cn.hstmt, SQL_ATTR_APP_PARAM_DESC, &hdesc, 0, NULL))) {
                 cn.diagError("SQLGetStmtAttr");
             }
             isParameterBind = true;
@@ -186,17 +187,21 @@ void Loader::loadData() {
         }
 
         if (lastRowCnt != c.rowCnt) {
-            if (!SQL_SUCCEEDED(SQLSetStmtAttr(hstmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)c.rowCnt, 0))) {
+            if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)c.rowCnt, 0))) {
                 cn.diagError("SQLSetStmtAttr");
             }
             lastRowCnt = c.rowCnt;
         }
 
         debug_log("doing data loading...\n");
-        //if (!SQL_SUCCEEDED(retcode = SQLExecute(hstmt))) {
-        //    debug_log("retcode:", retcode, "\n");
-        //    cn.diagError("SQLExecute");
-        //}
+#ifdef _TEST
+        testcnn.send(c.buf, c.bufsz);
+#else
+        if (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt))) {
+            debug_log("retcode:", retcode, "\n");
+            cn.diagError("SQLExecute");
+        }
+#endif
         rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
 
@@ -304,6 +309,7 @@ void Loader::setNumProducer(size_t n) {
 }
 
 void Connection::diagError(const std::string& functionName) {
+    debug_log("***ERROR: call diagError\n");
     SQLCHAR State[10];
     SQLINTEGER errCode;
     char errText[1024];

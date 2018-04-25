@@ -1,6 +1,7 @@
 #include <iostream>
+#include "Common.h"
 
 void error(const std::string errmsg, const std::string errmsg2 = "") {
-    std::cerr << errmsg << ' ' << errmsg2 << std::endl;
+    gLog.log<Log::ERROR>(errmsg, errmsg2, "\n");
     exit(-1);
 }
