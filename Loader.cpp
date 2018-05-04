@@ -13,6 +13,16 @@ Loader::Loader(const LoaderCmd& command):cmd{command} {
     isUniqueFeeder = true;
 }
 
+SQLSMALLINT getCType(SQLSMALLINT sqlType) {
+    switch (sqlType) {
+    case SQL_CHAR:
+    case SQL_VARCHAR:
+        return SQL_C_CHAR;
+    default:
+        return SQL_C_DEFAULT;
+    }
+}
+
 void Loader::run() {
 
     cmd.print();
@@ -164,7 +174,7 @@ void Loader::loadData() {
             size_t start = 0;
             debug_log("bind parameter\n");
             for (size_t i = 0, max = tableMeta.coldesc.size(); i < max; ++i) {
-                if (!SQL_SUCCEEDED(SQLBindParameter(cn.hstmt, (SQLUSMALLINT)(i + 1), SQL_PARAM_INPUT, SQL_C_CHAR, tableMeta.coldesc[i].Type,
+                if (!SQL_SUCCEEDED(SQLBindParameter(cn.hstmt, (SQLUSMALLINT)(i + 1), SQL_PARAM_INPUT, getCType(tableMeta.coldesc[i].Type), tableMeta.coldesc[i].Type,
                                                     tableMeta.coldesc[i].Size, tableMeta.coldesc[i].Decimal, (SQLPOINTER)(c.buf + start),
                                                     tableMeta.coldesc[i].Size, (SQLLEN*)(c.buf + start + tableMeta.coldesc[i].Size)))) {
                     cn.diagError("SQLBindParameter");
@@ -292,8 +302,11 @@ Feeder* Loader::createFeeder() {
     if (cmd.src == "stdin") {
         return new StandardInputFeeder();
     }
-    if (cmd.src == "rand") {
+    else if (cmd.src == "rand") {
         return new RandomFeeder(cmd.maxRows);
+    }
+    else if (cmd.src == "nofile") {
+        return new MapFeeder(cmd.mapFile, cmd.maxRows);
     }
     else {
         return new CSVFeeder(cmd.src, ' ');
