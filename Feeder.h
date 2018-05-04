@@ -56,7 +56,10 @@ public:
             for (SQLSMALLINT c = 0; c < tbMeta.ColumnNum; ++c) {
                 if (!putData(r, c, dc.buf + start, tbMeta)) return dc.rowCnt > 0;
                 start += tbMeta.coldesc[c].Size;
-                *((SQLLEN*)(dc.buf + start)) = SQL_NTS;
+                if (tbMeta.coldesc[c].Type == SQL_CHAR || tbMeta.coldesc[c].Type == SQL_VARCHAR)
+                    *((SQLLEN*)(dc.buf + start)) = SQL_NTS;
+                else
+                    *((SQLLEN*)(dc.buf + start)) = 0;
                 start += sizeof(SQLLEN);
             }
         }

@@ -130,7 +130,7 @@ MapFeeder::MapFeeder(std::string fileName, size_t maxRows)
     }
 
     for (std::string line; std::getline(fin, line);) {
-        debug_log("read map line:", line);
+        gLog.log<Log::DEBUG>("read map line:", line, "\n");
         std::string Name;
         std::string rule;
         std::string leftspec;
@@ -138,7 +138,7 @@ MapFeeder::MapFeeder(std::string fileName, size_t maxRows)
         std::istringstream iss{line};
         std::getline(iss, Name, ':');
         std::getline(iss, rule, ':');
-        std::getline(iss, leftspec, ':');
+        std::getline(iss, leftspec);
 
         if (rule == "SEQ") {
             fillers.push_back(std::unique_ptr<Filler>{new SeqLongFiller{leftspec}});
@@ -168,6 +168,7 @@ bool MapFeeder::fillData(int c, char *buf) {
 
 SeqLongFiller::SeqLongFiller(const std::string spec)
         :Filler(spec) {
+    gLog.log<Log::DEBUG>("SeqLongFiller spec:", spec, "\n");
     seqnum = std::stol(spec);
 }
 
@@ -178,6 +179,7 @@ bool SeqLongFiller::fill(void *buf) {
 
 IrandFiller::IrandFiller(const std::string& spec)
     :Filler(spec){
+    gLog.log<Log::DEBUG>("IrandFiller spec:", spec, "\n");
     std::istringstream iss{spec};
     std::string minstr, maxstr;
     std::getline(iss, minstr, ':');
@@ -207,6 +209,7 @@ bool CharsRandFiller::fill(void *buf) {
 
 DateRandFiller::DateRandFiller(const std::string& spec)
     : Filler(spec) { 
+    gLog.log<Log::DEBUG>("DateRand:", spec, "\n");
     std::istringstream iss{spec};
     std::string maxY, minY;
     std::getline(iss, maxY, ':');

@@ -35,6 +35,10 @@ void Loader::run() {
         setNumProducer(cmd.parallel);
         setNumConsumer(cmd.parallel);
     }
+    else if (cmd.src == "nofile") {
+        setNumProducer(1);
+        setNumConsumer(cmd.parallel);
+    }
     else {
         setNumConsumer(cmd.parallel);
     }
@@ -170,7 +174,7 @@ void Loader::loadData() {
 
         debug_log("=====get loading data rows:", c.rowCnt, "\n");
 
-        if (!isParameterBind) {
+        if (true || !isParameterBind) {
             size_t start = 0;
             debug_log("bind parameter\n");
             for (size_t i = 0, max = tableMeta.coldesc.size(); i < max; ++i) {
