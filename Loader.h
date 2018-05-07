@@ -3,6 +3,7 @@
 #include "Common.h"
 #include "DataContainer.h"
 #include "Feeder.h"
+#include "hdfs.h"
 #include <sqlext.h>
 #include <queue>
 #include <mutex>
@@ -104,6 +105,9 @@ public:
     void setNumProducer(size_t n);
 
 private:
+    void loadToDB();
+    void loadToHDFS();
+
     void initTableMeta(Connection& cnxn);
     Feeder *createFeeder();
 

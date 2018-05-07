@@ -4,10 +4,6 @@
 #include "error.h"
 #include "Loader.h"
 
-#ifdef _TEST
-#include "TCPClient.h"
-#endif
-
 Loader::Loader(const LoaderCmd& command):cmd{command} {
     maxSize = cmd.parallel * 2;
     isUniqueFeeder = true;
@@ -70,17 +66,13 @@ void Loader::run() {
     }
 }
 
-void Loader::loadData() {
+void Loader::loadToDB() {
     Connection cn {cmd.dbcfg};
     bool isParameterBind = false;
     size_t lastRowCnt = 0;
     size_t rowsLoaded = 0;
     SQLRETURN retcode = 0;
     SQLHANDLE hdesc = NULL;
-
-#ifdef _TEST
-    TCPClient testcnn{"10.10.10.11", 8800};
-#endif
 
     // intialize table meta
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
@@ -208,21 +200,18 @@ void Loader::loadData() {
         }
 
         debug_log("doing data loading...\n");
-#ifdef _TEST
-        testcnn.send(c.buf, c.bufsz);
-#else
         if (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt))) {
             debug_log("retcode:", retcode, "\n");
             cn.diagError("SQLExecute");
         }
-#endif
+
         rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
 
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
 
-        if (producerCnt == 0) {
+        if (producerCnt == 0 && fullQueue.size() == 0) {
             condEmptyQueueNotFull.notify_all();
             break;
         }
@@ -240,6 +229,75 @@ void Loader::loadData() {
         gLog.log<Log::INFO>("loading time:", tElapsed,
                 " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
+}
+
+void Loader::loadToHDFS() {
+    gLog.log<Log::INFO>("load data to hdfs\n");
+
+    size_t rowsLoaded = 0;
+    hdfsFS fs = hdfsConnect("default", 0);
+    std::string writePath = cmd.tableName.substr(5);
+    hdfsFile writeFile = hdfsOpenFile(fs, writePath.c_str(), O_WRONLY | O_CREAT, 0, 0, 0);
+    if (!writeFile) {
+        gLog.log<Log::ERROR>("Failed to open %s for writing!\n", writePath);
+        exit(-1);
+    }
+
+    while (true) {
+        std::unique_lock<std::mutex> lckFullQ{mFullQueue};
+
+        condFullQueueNotEmpty.wait(lckFullQ, [this]{return (!fullQueue.empty()) || (producerCnt == 0);});
+
+        debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
+        if (fullQueue.empty() && producerCnt == 0) {
+            condFullQueueNotEmpty.notify_all();
+            break;
+        }
+
+        DataContainer c = std::move(fullQueue.front());
+        fullQueue.pop();
+        condFullQueueNotFull.notify_one();
+        lckFullQ.unlock();
+
+        debug_log("=====get loading data rows:", c.rowCnt, "\n");
+
+        debug_log("doing data loading...\n");
+        
+        tSize num_written_bytes = hdfsWrite(fs, writeFile, c.buf, rowWidth * c.rowCnt);
+
+        rowsLoaded += c.rowCnt;
+        gLog.log<Log::INFO>(c.rowCnt, " rows loaded\n");
+
+        std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
+        condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
+
+        if (producerCnt == 0 && fullQueue.size() == 0) {
+            condEmptyQueueNotFull.notify_all();
+            break;
+        }
+
+        debug_log("loader>>size of empty queue:", emptyQueue.size(), "\n");
+        emptyQueue.push(std::move(c));
+        condEmptyQueueNotEmpty.notify_one();
+    }
+
+    totalLoadedRows += rowsLoaded;
+    gLog.log<Log::INFO>("loading thread exit\n");
+    if(--consumerCnt == 0) {
+        tLoadEnd = std::chrono::high_resolution_clock::now();
+        auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
+        gLog.log<Log::INFO>("loading time:", tElapsed,
+                " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
+                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
+}
+
+void Loader::loadData() {
+    if (cmd.tableName.substr(0, 5) == "hdfs.") {
+        loadToHDFS();
+    }
+    else {
+        loadToDB();
+    }
 }
 
 void Loader::produceData() {
@@ -262,9 +320,11 @@ void Loader::produceData() {
 
             fullQueue.push(std::move(c));
             condFullQueueNotEmpty.notify_one();
+            gLog.log<Log::DEBUG>("filled data, queue size:", fullQueue.size(), "\n");
         }
     }
     if(--producerCnt == 0) condFullQueueNotEmpty.notify_all();
+    gLog.log<Log::DEBUG>("producer exit\n");
 }
 
 void Loader::initTableMeta(Connection& cnxn) {
