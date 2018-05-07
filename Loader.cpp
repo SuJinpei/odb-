@@ -243,6 +243,55 @@ void Loader::loadToHDFS() {
         exit(-1);
     }
 
+    std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
+    if (!isTableMetaInitialized) {
+        std::ifstream ifs{cmd.mapFile};
+        for(std::string temp; std::getline(ifs, temp);) {
+            ColumnDesc desc;
+            std::string temp1;
+            std::getline(ifs, desc.Name, ':');
+            std::getline(ifs, temp1, ':');
+            if (temp1 == "CRAND") {
+                desc.Type = SQL_CHAR;
+                std::getline(ifs, temp1, ':');
+                desc.Size = std::stoul(temp1);
+            }
+            else if (temp1 == "DRAND") {
+                desc.Type = SQL_DATE;
+                desc.Size = sizeof(SQL_DATE_STRUCT);
+            }
+            else if (temp1 == "SEQ" ||
+                     temp1 == "IRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_INTEGER;
+            }
+            else {
+                gLog.log<Log::ERROR>("unsupported type ", temp1, "\n");
+                return;
+            }
+            tableMeta.coldesc.push_back(std::move(desc));
+        }
+
+        // compute rowWidth
+        for (SQLSMALLINT i = 0; i < tableMeta.ColumnNum; ++i) {
+            rowWidth += tableMeta.coldesc[i].Size;
+            debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
+            rowWidth += sizeof(SQLLEN);
+        }
+
+        // distribute data container
+        std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
+        for (size_t i = 0; i < maxSize; ++i) {
+            emptyQueue.push(DataContainer{rowWidth * cmd.rows, cmd.rows});
+        }
+        condEmptyQueueNotEmpty.notify_all();
+        lckEmptyQ.unlock();
+
+        isTableMetaInitialized = true;
+    }
+
+    lckTableMeta.unlock();
+
     while (true) {
         std::unique_lock<std::mutex> lckFullQ{mFullQueue};
 
