@@ -281,6 +281,13 @@ void Loader::loadToHDFS() {
         condEmptyQueueNotEmpty.notify_one();
     }
 
+    if (hdfsFlush(fs, writeFile)) {
+        gLog.log<Log::ERROR>(stderr, "Failed to 'flush'", writePath, "\n");
+        exit(-1);
+    }
+
+    hdfsCloseFile(fs, writeFile);
+
     totalLoadedRows += rowsLoaded;
     gLog.log<Log::INFO>("loading thread exit\n");
     if(--consumerCnt == 0) {
