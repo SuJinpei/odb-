@@ -1,8 +1,13 @@
 #include <iostream>
 #include <chrono>
 #include <sstream>
+#include <condition_variable>
+#include <map>
+#include <random>
+#include <limits>
 #include "error.h"
 #include "Loader.h"
+#include "hbase/hbase.h"
 
 Loader::Loader(const LoaderCmd& command):cmd{command} {
     maxSize = cmd.parallel * 2;
@@ -119,7 +124,7 @@ void Loader::loadToDB() {
     std::unique_ptr<SQLSMALLINT> pStatus{new SQLSMALLINT[cmd.rows]};
     SQLULEN processedRow = 0;
     
-    debug_log("rowWidth:", rowWidth, "\n");
+    gLog.log<Log::INFO>("rowWidth:", rowWidth, "\n");
 
     if (!SQL_SUCCEEDED(SQLSetStmtAttr(cn.hstmt, SQL_ATTR_PARAM_BIND_TYPE, (SQLPOINTER)rowWidth, 0))) {
         cn.diagError("SQLSetStmtAttr");
@@ -231,29 +236,96 @@ void Loader::loadToDB() {
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
 
-void Loader::loadToHDFS() {
-    gLog.log<Log::INFO>("load data to hdfs\n");
+struct PutContext {
+    bool flush_done;
+    size_t rmRows;
+    std::mutex mutex_flush_done;
+    std::condition_variable cond_flush_done; 
+    std::mutex mutex_rmRows;
+    std::condition_variable cond_rmRows_empty;
+};
+
+std::mutex mutex_thread_data;
+std::map<hb_client_t, PutContext*> mapThreadData;
+
+static void
+put_callback(int32_t err, hb_client_t client,
+    hb_mutation_t mutaion, hb_result_t result, void *extra) {
+    std::unique_lock<std::mutex> lck{mapThreadData[client]->mutex_rmRows};
+    --mapThreadData[client]->rmRows;
+    mapThreadData[client]->cond_rmRows_empty.notify_all();
+}
+
+static void
+client_flush_callback(int32_t err,
+  hb_client_t client, void *extra) {
+    std::unique_lock<std::mutex> lck{mapThreadData[client]->mutex_flush_done};
+    mapThreadData[client]->flush_done = true;
+    mapThreadData[client]->cond_flush_done.notify_all();
+}
+
+static void
+wait_for_flush(hb_client_t client) {
+    std::unique_lock<std::mutex> lck{mapThreadData[client]->mutex_flush_done};
+    mapThreadData[client]->cond_flush_done.wait(lck,
+      [&]{return mapThreadData[client]->flush_done;});
+}
+
+static void
+wait_for_puts(hb_client_t client) {
+    std::unique_lock<std::mutex> lck{mapThreadData[client]->mutex_rmRows};
+    mapThreadData[client]->cond_rmRows_empty.wait(lck,
+        [&]{return mapThreadData[client]->rmRows == 0;});
+}
+
+void Loader::loadToHBase() {
+    gLog.log<Log::INFO>("load data to HBase\n");
 
     size_t rowsLoaded = 0;
-    hdfsFS fs = hdfsConnect("default", 0);
-    std::string writePath = cmd.tableName.substr(5);
-    hdfsFile writeFile = hdfsOpenFile(fs, writePath.c_str(), O_WRONLY | O_CREAT, 0, 0, 0);
-    if (!writeFile) {
-        gLog.log<Log::ERROR>("Failed to open %s for writing!\n", writePath);
+    std::string table_name = cmd.tableName.substr(6);
+
+    hb_log_set_level(HBASE_LOG_LEVEL_ERROR); // defaults to INFO
+
+    std::random_device rd{};
+    std::mt19937_64 gen{rd()};
+    std::uniform_int_distribution<long> keyDist{std::numeric_limits<long>::min(), std::numeric_limits<long>::max()};
+    long key;
+
+    // connect hbase
+    int32_t retCode = 0;
+    hb_connection_t connection = NULL;
+    hb_client_t client = NULL;
+    std::string zk_ensemble = "localhost:2181";
+    const char *zk_root_znode = NULL;
+
+    if ((retCode = hb_connection_create(zk_ensemble.c_str(),
+                                        zk_root_znode,
+                                        &connection)) != 0) {
+        gLog.log<Log::ERROR>("failed to create HBase connection\n");
         exit(-1);
     }
+
+    if ((retCode = hb_client_create(connection, &client)) != 0) {
+        gLog.log<Log::ERROR>("failed to create HBase client\n");
+        exit(-1);
+    }
+    std::unique_lock<std::mutex> lckThread{mutex_thread_data};
+    PutContext put_context;
+    mapThreadData.emplace(client, &put_context);
+    lckThread.unlock();
 
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
     if (!isTableMetaInitialized) {
         std::ifstream ifs{cmd.mapFile};
         for(std::string temp; std::getline(ifs, temp);) {
             ColumnDesc desc;
+            std::istringstream iss{temp};
             std::string temp1;
-            std::getline(ifs, desc.Name, ':');
-            std::getline(ifs, temp1, ':');
+            std::getline(iss, desc.Name, ':');
+            std::getline(iss, temp1, ':');
             if (temp1 == "CRAND") {
                 desc.Type = SQL_CHAR;
-                std::getline(ifs, temp1, ':');
+                std::getline(iss, temp1, ':');
                 desc.Size = std::stoul(temp1);
             }
             else if (temp1 == "DRAND") {
@@ -269,15 +341,17 @@ void Loader::loadToHDFS() {
                 gLog.log<Log::ERROR>("unsupported type ", temp1, "\n");
                 return;
             }
-            tableMeta.coldesc.push_back(std::move(desc));
+            gLog.log<Log::DEBUG>("***SIZE:", desc.Size, "\n");
+            tableMeta.coldesc.push_back(desc);
         }
 
         // compute rowWidth
-        for (SQLSMALLINT i = 0; i < tableMeta.ColumnNum; ++i) {
+        for (SQLSMALLINT i = 0; i < tableMeta.coldesc.size(); ++i) {
             rowWidth += tableMeta.coldesc[i].Size;
             debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
             rowWidth += sizeof(SQLLEN);
         }
+	gLog.log<Log::DEBUG>("rowwidth:", rowWidth, "\n");
 
         // distribute data container
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
@@ -288,6 +362,149 @@ void Loader::loadToHDFS() {
         lckEmptyQ.unlock();
 
         isTableMetaInitialized = true;
+    	tLoadStart = std::chrono::high_resolution_clock::now();
+    }
+
+    lckTableMeta.unlock();
+
+    hb_put_t put = NULL;
+
+    while (true) {
+        std::unique_lock<std::mutex> lckFullQ{mFullQueue};
+
+        condFullQueueNotEmpty.wait(lckFullQ, [this]{return (!fullQueue.empty()) || (producerCnt == 0);});
+
+        debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
+        if (fullQueue.empty() && producerCnt == 0) {
+            condFullQueueNotEmpty.notify_all();
+            break;
+        }
+
+        DataContainer c = std::move(fullQueue.front());
+        fullQueue.pop();
+        condFullQueueNotFull.notify_one();
+        lckFullQ.unlock();
+
+        debug_log("=====get loading data rows:", c.rowCnt, "\n");
+
+        debug_log("doing data loading...\n");
+        
+        // tSize num_written_bytes = hdfsWrite(fs, writeFile, c.buf, rowWidth * c.rowCnt);
+
+        mapThreadData[client]->rmRows = c.rowCnt;
+        mapThreadData[client]->flush_done = false;
+
+        for (size_t i = 0; i < c.rowCnt; ++i) {
+            hb_put_create((byte_t*)&key, sizeof(long), &put);
+            hb_mutation_set_table(put, table_name.c_str(), table_name.size());
+            hb_mutation_set_durability(put, DURABILITY_SKIP_WAL);
+            hb_mutation_set_bufferable(put, false);
+            hb_cell_t *cell = (hb_cell_t*)calloc(1, sizeof(hb_cell_t));
+            key = keyDist(gen);
+            cell->row = (byte_t*)&key;
+            cell->row_len = sizeof(long);
+            cell->family = (byte_t *)"#1";
+            cell->family_len = 2;
+            cell->qualifier = (byte_t *)"1";
+            cell->qualifier_len = 1;
+            cell->value = (byte_t *)(c.buf + i * rowWidth);
+            cell->value_len = rowWidth;
+            cell->ts = HBASE_LATEST_TIMESTAMP;
+
+            hb_put_add_cell(put, cell);
+            hb_mutation_send(client, put, put_callback, NULL);
+        }
+
+        rowsLoaded += c.rowCnt;
+        gLog.log<Log::INFO>(c.rowCnt, " rows loaded\n");
+
+        std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
+        condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
+
+        if (producerCnt == 0 && fullQueue.size() == 0) {
+            condEmptyQueueNotFull.notify_all();
+            break;
+        }
+
+        debug_log("loader>>size of empty queue:", emptyQueue.size(), "\n");
+        emptyQueue.push(std::move(c));
+        condEmptyQueueNotEmpty.notify_one();
+    }
+    //wait_for_puts(client);
+    //hb_client_flush(client, client_flush_callback, NULL);
+    //wait_for_flush(client);
+
+    totalLoadedRows += rowsLoaded;
+    gLog.log<Log::INFO>("loading thread exit\n");
+    if(--consumerCnt == 0) {
+        tLoadEnd = std::chrono::high_resolution_clock::now();
+        auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
+        gLog.log<Log::INFO>("loading time:", tElapsed,
+                " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
+                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
+}
+
+void Loader::loadToHDFS() {
+    gLog.log<Log::INFO>("load data to hdfs\n");
+
+    size_t rowsLoaded = 0;
+    hdfsFS fs = hdfsConnect("default", 0);
+    std::string writePath = cmd.tableName.substr(5) + std::to_string(cmd.sid + lid++);
+    hdfsFile writeFile = hdfsOpenFile(fs, writePath.c_str(), O_WRONLY | O_CREAT, 0, 0, 0);
+    if (!writeFile) {
+        gLog.log<Log::ERROR>("Failed to open %s for writing!\n", writePath);
+        exit(-1);
+    }
+
+    std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
+    if (!isTableMetaInitialized) {
+        std::ifstream ifs{cmd.mapFile};
+        for(std::string temp; std::getline(ifs, temp);) {
+            ColumnDesc desc;
+            std::istringstream iss{temp};
+            std::string temp1;
+            std::getline(iss, desc.Name, ':');
+            std::getline(iss, temp1, ':');
+            if (temp1 == "CRAND") {
+                desc.Type = SQL_CHAR;
+                std::getline(iss, temp1, ':');
+                desc.Size = std::stoul(temp1);
+            }
+            else if (temp1 == "DRAND") {
+                desc.Type = SQL_DATE;
+                desc.Size = sizeof(SQL_DATE_STRUCT);
+            }
+            else if (temp1 == "SEQ" ||
+                     temp1 == "IRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_INTEGER;
+            }
+            else {
+                gLog.log<Log::ERROR>("unsupported type ", temp1, "\n");
+                return;
+            }
+            gLog.log<Log::DEBUG>("***SIZE:", desc.Size, "\n");
+            tableMeta.coldesc.push_back(desc);
+        }
+
+        // compute rowWidth
+        for (SQLSMALLINT i = 0; i < tableMeta.coldesc.size(); ++i) {
+            rowWidth += tableMeta.coldesc[i].Size;
+            debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
+            rowWidth += sizeof(SQLLEN);
+        }
+	gLog.log<Log::DEBUG>("rowwidth:", rowWidth, "\n");
+
+        // distribute data container
+        std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
+        for (size_t i = 0; i < maxSize; ++i) {
+            emptyQueue.push(DataContainer{rowWidth * cmd.rows, cmd.rows});
+        }
+        condEmptyQueueNotEmpty.notify_all();
+        lckEmptyQ.unlock();
+
+        isTableMetaInitialized = true;
+    	tLoadStart = std::chrono::high_resolution_clock::now();
     }
 
     lckTableMeta.unlock();
@@ -350,6 +567,9 @@ void Loader::loadToHDFS() {
 void Loader::loadData() {
     if (cmd.tableName.substr(0, 5) == "hdfs.") {
         loadToHDFS();
+    }
+    else if (cmd.tableName.substr(0,6) == "hbase.") {
+        loadToHBase();
     }
     else {
         loadToDB();
@@ -501,6 +721,9 @@ void LoaderCmd::parse(const std::string& cmdStr) {
         }
         else if (key == "parallel") {
             parallel = std::stoul(val);
+        }
+        else if (key == "sid") {
+            sid = std::stoul(val);
         }
         else if (key == "loadcmd") {
             if (val == "IN")

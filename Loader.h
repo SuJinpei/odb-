@@ -53,6 +53,7 @@ struct LoaderCmd {
     size_t fieldtrunc; // {0-4}
     size_t tpar;        // #tables
     size_t maxlen;      // #bytes
+    size_t sid = 0;
     std::string pre;    // {@sqlfile} | {sqlcmd}
     std::string post;   // {@sqlfile} | {sqlcmd}
     std::string bad;    // [+]badfile
@@ -107,6 +108,7 @@ public:
 private:
     void loadToDB();
     void loadToHDFS();
+    void loadToHBase();
 
     void initTableMeta(Connection& cnxn);
     Feeder *createFeeder();
@@ -134,6 +136,7 @@ private:
     std::atomic_size_t producerCnt {0}; 
     std::atomic_size_t consumerCnt {0}; 
     std::atomic_size_t totalLoadedRows {0};
+    std::atomic_size_t lid {1};
 
     size_t consumNumer = 1;
     size_t producerNum = 1;

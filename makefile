@@ -1,9 +1,9 @@
 PROGRAM=odb
-INCLUDE=-I. -I${HADOOP_INC_DIR}
-LIBPATH=-L${HADOOP_LIB_DIR} -L${JAVA_HOME}/jre/lib/amd64/server
+INCLUDE=-I. -I./include -I${HADOOP_INC_DIR}
+LIBPATH=-L${HADOOP_LIB_DIR} -L${JAVA_HOME}/jre/lib/amd64/server -L./lib/libhbase-1.0-SNAPSHOT/lib/native
 ODIR=obj
 CC=g++
-LINK_FLAGS=-lodbc -lpthread -lhdfs -ljvm
+LINK_FLAGS=-lodbc -lpthread -lhdfs -ljvm -lhbase
 
 ifeq ($(cut), 1)
 INCLUDE += -I./include
