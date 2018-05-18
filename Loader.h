@@ -3,7 +3,11 @@
 #include "Common.h"
 #include "DataContainer.h"
 #include "Feeder.h"
+
+#ifndef _WINDOWS
 #include "hdfs.h"
+#endif
+
 #include <sqlext.h>
 #include <queue>
 #include <mutex>
@@ -107,8 +111,11 @@ public:
 
 private:
     void loadToDB();
+
+#ifndef _WINDOWS
     void loadToHDFS();
     void loadToHBase();
+#endif
 
     void initTableMeta(Connection& cnxn);
     Feeder *createFeeder();

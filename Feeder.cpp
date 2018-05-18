@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <iomanip>
 #include "Feeder.h"
 
 bool Feeder::putData(int r, int c, char *buf, const TableDesc& tbMeta) {
@@ -76,7 +77,7 @@ Rand_Stream& Rand_Stream::operator>>(std::string& s) {
         s = r.fast_rand_str(cdesc[currentColumns].Size -1);
         break;
     default:
-        gLog.log<Log::ERROR>("File:",__FILE__,", Line:", __LINE__, ", unsupported SQL type:",
+        gLog.log<Log::LERROR>("File:",__FILE__,", Line:", __LINE__, ", unsupported SQL type:",
                              cdesc[currentColumns].Type, ",columns:", currentColumns, "\n");
         isStateGood = false;
     }
@@ -125,7 +126,7 @@ MapFeeder::MapFeeder(std::string fileName, size_t maxRows)
     if (fin.is_open())
         gLog.log<Log::DEBUG>("map file opened\n");
     else {
-        gLog.log<Log::ERROR>("map file open failed\n");
+        gLog.log<Log::LERROR>("map file open failed\n");
         throw std::runtime_error("open map file");
     }
 
@@ -145,6 +146,9 @@ MapFeeder::MapFeeder(std::string fileName, size_t maxRows)
         }
         else if (rule == "IRAND") {
             fillers.push_back(std::unique_ptr<Filler>{new IrandFiller{leftspec}});
+        }
+        else if (rule == "NRAND") {
+            fillers.push_back(std::unique_ptr<Filler>{new NumericRandFiller{leftspec}});
         }
         else if (rule == "CRAND") {
             fillers.push_back(std::unique_ptr<Filler>{new CharsRandFiller{leftspec}});
@@ -212,8 +216,8 @@ DateRandFiller::DateRandFiller(const std::string& spec)
     gLog.log<Log::DEBUG>("DateRand:", spec, "\n");
     std::istringstream iss{spec};
     std::string maxY, minY;
-    std::getline(iss, maxY, ':');
     std::getline(iss, minY, ':');
+    std::getline(iss, maxY, ':');
     maxYear = std::stol(maxY);
     minYear = std::stol(minY);
 }
@@ -222,5 +226,31 @@ bool DateRandFiller::fill(void *buf) {
     ((SQL_DATE_STRUCT*)buf)->year = rnd.rand_long(minYear, maxYear);
     ((SQL_DATE_STRUCT*)buf)->month = rnd.rand_long(1, 12);
     ((SQL_DATE_STRUCT*)buf)->day = rnd.rand_long(1, 28);
+    return true;
+}
+
+NumericRandFiller::NumericRandFiller(const std::string& spec)
+    : Filler(spec) {
+    std::istringstream iss{ spec };
+    std::string p, s;
+    std::getline(iss, p, ':');
+    std::getline(iss, s, ':');
+    prec = std::stol(p);
+    scal = std::stol(s);
+    maxInt = 1;
+    for (int i = 0; i < prec; ++i) {
+        maxInt *= 10;
+    }
+    scaleDiv = 1;
+    for (int i = 0; i < scal; ++i) {
+        scaleDiv *= 10;
+    }
+}
+
+bool NumericRandFiller::fill(void *buf) {
+    std::stringstream sstr;
+    sstr << std::setprecision(prec) << (double)(rnd.rand_long(0, maxInt))/scaleDiv;
+    strcpy((char*)buf, sstr.str().c_str());
+    debug_log("numeric string:", sstr.str(), "\n");
     return true;
 }

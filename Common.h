@@ -1,22 +1,14 @@
 #pragma once
-
+#ifdef _WINDOWS
+#include <Windows.h>
+#endif
 #include <sqlext.h>
 #include <iostream>
+#include <string>
 #include <vector>
 #include <mutex>
 #include <algorithm>
-#include <cstdlib>
-#include <ctime>
-
-#ifdef _DEBUG
-    #define debug_log(args...) { \
-                std::unique_lock<std::mutex> lckIO{mutexIO};\
-                print(std::cout, args); \
-            }
-#else
-    #define debug_log(...)
-#endif
-
+#include <random>
 
 extern std::mutex mutexIO;
 extern std::mutex mutexLog;
@@ -25,8 +17,18 @@ void print(std::ostream&);
 
 template<typename T, typename... Args>
 void print(std::ostream& os, const T& t, Args const&... args) {
-    print(os<<t, args...);
+    print(os << t, args...);
 }
+
+#ifdef _DEBUG
+template<typename... Args>
+void debug_log(Args const&... args) {
+    std::unique_lock<std::mutex> lckIO{ mutexIO };
+    print(std::cout, args...);
+}
+#else
+#define debug_log(...)
+#endif
 
 struct ColumnDesc
 {
@@ -34,7 +36,8 @@ struct ColumnDesc
     SQLSMALLINT Type;
     SQLSMALLINT Decimal;
     SQLSMALLINT Nullable;
-    SQLULEN Size;
+    SQLULEN Size = 0;
+    SQLLEN OtectLen = 0;
     std::string Name = std::string(128, '\0');
 
 };
@@ -50,13 +53,13 @@ struct TableDesc
 class Log {
 public:
     enum LogLevel {
-        ERROR,
+        LERROR,
         WARNING,
         INFO,
         DEBUG
     };
 
-    Log(std::ostream& os, const LogLevel lv = ERROR)
+    Log(std::ostream& os, const LogLevel lv = LERROR)
         :_buffer{os}, logLevel{lv}{}
 
     template<Log::LogLevel lv, typename... Args>
@@ -64,7 +67,7 @@ public:
             if (lv <= logLevel) {
                 std::unique_lock<std::mutex> lckLog{mutexLog};
                 switch(lv) {
-                case Log::ERROR:
+                case Log::LERROR:
                     _buffer << "[***ERROR***]\t"; break;
                 case Log::WARNING:
                     _buffer << "[***WARNING***]\t"; break;
@@ -94,5 +97,6 @@ public:
 private:
     std::string rand_char_seqs;
     static const std::string chars;
-    drand48_data rand_buffer;
+    std::random_device rd;
+    std::mt19937_64 gen;
 };
