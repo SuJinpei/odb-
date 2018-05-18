@@ -207,10 +207,10 @@ void Loader::loadToDB() {
         }
 
         debug_log("doing data loading...\n");
-        if (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt))) {
-            debug_log("retcode:", retcode, "\n");
-            cn.diagError("SQLExecute");
-        }
+        //if (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt))) {
+        //    debug_log("retcode:", retcode, "\n");
+        //    cn.diagError("SQLExecute");
+        //}
 
         rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");

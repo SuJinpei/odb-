@@ -8,7 +8,9 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
-#include <random>
+//#include <random>
+#include <cstdlib>
+#include <ctime>
 
 extern std::mutex mutexIO;
 extern std::mutex mutexLog;
@@ -97,6 +99,8 @@ public:
 private:
     std::string rand_char_seqs;
     static const std::string chars;
-    std::random_device rd;
-    std::mt19937_64 gen;
+//    std::random_device rd;
+//    std::mt19937_64 gen;
+    drand48_data randbuf;
+    unsigned short int seed16v[3];
 };

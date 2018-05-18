@@ -13,13 +13,18 @@ void Log::setLevel(Log::LogLevel lv) {
     logLevel = lv;
 }
 
-Random::Random() : rd{}, gen { rd() } {
+Random::Random()/* : rd{}, gen { rd() } */ {
+    *((time_t*)seed16v) = time(0);
+    seed48_r(seed16v, &randbuf);
     rand_char_seqs = rand_str(1024*1024);
 }
 
 long Random::rand_long(long lo, long hi) {
-    std::uniform_int_distribution<long> ldist{ lo, hi };
-    return ldist(gen);
+    long r;
+    lrand48_r(&randbuf, &r);
+    return r%(hi-lo)+lo;
+    //std::uniform_int_distribution<long> ldist{ lo, hi };
+    //return ldist(gen);
 }
 
 double Random::rand_double(double lo, double hi, size_t digit) {
