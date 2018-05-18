@@ -7,7 +7,9 @@
 #include <limits>
 #include "error.h"
 #include "Loader.h"
+#ifndef _WINDOWS
 #include "hbase/hbase.h"
+#endif
 
 Loader::Loader(const LoaderCmd& command):cmd{command} {
     maxSize = cmd.parallel * 2;

@@ -10,7 +10,7 @@ struct DBConfig {
 };
 
 struct Task {
-    enum TASKID {COPY, EXTRACT, LOAD, HELP};
+    enum TASKID {COPY, EXTRACT, LOAD, HELP, TEST_RAND_SPEED};
     TASKID taskID;
     std::string taskOptionStr;
 };
