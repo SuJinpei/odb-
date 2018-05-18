@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iterator>
 #include "Common.h"
 
 std::mutex mutexIO;
@@ -12,15 +13,13 @@ void Log::setLevel(Log::LogLevel lv) {
     logLevel = lv;
 }
 
-Random::Random() {
-    srand48_r(time(nullptr), &rand_buffer);
+Random::Random() : rd{}, gen { rd() } {
     rand_char_seqs = rand_str(1024*1024);
 }
 
 long Random::rand_long(long lo, long hi) {
-    long ret;
-    lrand48_r(&rand_buffer, &ret);
-    return ret%(hi-lo) + lo;
+    std::uniform_int_distribution<long> ldist{ lo, hi };
+    return ldist(gen);
 }
 
 double Random::rand_double(double lo, double hi, size_t digit) {
@@ -37,7 +36,7 @@ double Random::rand_double(double lo, double hi, size_t digit) {
 
 std::string Random::rand_str(size_t len) {
     std::string ret;
-    std::generate_n(std::back_inserter(ret), len, [this]{return chars[rand_long(0, chars.size()-1)];});
+    std::generate_n(std::back_inserter(ret), len, [this] {return chars[rand_long(0, chars.size() - 1)]; });
     return ret;
 }
 

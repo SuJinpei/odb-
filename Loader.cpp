@@ -14,6 +14,8 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
     case SQL_CHAR:
     case SQL_VARCHAR:
         return SQL_C_CHAR;
+    //case SQL_NUMERIC:
+    //    return SQL_C_NUMERIC;
     default:
         return SQL_C_DEFAULT;
     }
@@ -84,8 +86,8 @@ void Loader::loadToDB() {
 
         // compute rowWidth
         for (SQLSMALLINT i = 0; i < tableMeta.ColumnNum; ++i) {
-            rowWidth += tableMeta.coldesc[i].Size;
-            debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
+            rowWidth += tableMeta.coldesc[i].OtectLen;
+            debug_log("col", i, ':', tableMeta.coldesc[i].OtectLen, "\n");
             rowWidth += sizeof(SQLLEN);
         }
 
@@ -172,10 +174,10 @@ void Loader::loadToDB() {
             for (size_t i = 0, max = tableMeta.coldesc.size(); i < max; ++i) {
                 if (!SQL_SUCCEEDED(SQLBindParameter(cn.hstmt, (SQLUSMALLINT)(i + 1), SQL_PARAM_INPUT, getCType(tableMeta.coldesc[i].Type), tableMeta.coldesc[i].Type,
                                                     tableMeta.coldesc[i].Size, tableMeta.coldesc[i].Decimal, (SQLPOINTER)(c.buf + start),
-                                                    tableMeta.coldesc[i].Size, (SQLLEN*)(c.buf + start + tableMeta.coldesc[i].Size)))) {
+                                                    tableMeta.coldesc[i].OtectLen, (SQLLEN*)(c.buf + start + tableMeta.coldesc[i].OtectLen)))) {
                     cn.diagError("SQLBindParameter");
                 }
-                start += tableMeta.coldesc[i].Size + sizeof(SQLLEN);
+                start += tableMeta.coldesc[i].OtectLen + sizeof(SQLLEN);
             }
             if (!SQL_SUCCEEDED(SQLGetStmtAttr(cn.hstmt, SQL_ATTR_APP_PARAM_DESC, &hdesc, 0, NULL))) {
                 cn.diagError("SQLGetStmtAttr");
@@ -200,7 +202,7 @@ void Loader::loadToDB() {
         }
 
         debug_log("doing data loading...\n");
-        if (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt))) {
+        if (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt))) {
             debug_log("retcode:", retcode, "\n");
             cn.diagError("SQLExecute");
         }
@@ -231,6 +233,7 @@ void Loader::loadToDB() {
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
 
+#ifndef _WINDOWS
 void Loader::loadToHDFS() {
     gLog.log<Log::INFO>("load data to hdfs\n");
 
@@ -239,7 +242,7 @@ void Loader::loadToHDFS() {
     std::string writePath = cmd.tableName.substr(5);
     hdfsFile writeFile = hdfsOpenFile(fs, writePath.c_str(), O_WRONLY | O_CREAT, 0, 0, 0);
     if (!writeFile) {
-        gLog.log<Log::ERROR>("Failed to open %s for writing!\n", writePath);
+        gLog.log<Log::LERROR>("Failed to open %s for writing!\n", writePath);
         exit(-1);
     }
 
@@ -266,7 +269,7 @@ void Loader::loadToHDFS() {
                 desc.Type = SQL_INTEGER;
             }
             else {
-                gLog.log<Log::ERROR>("unsupported type ", temp1, "\n");
+                gLog.log<Log::LERROR>("unsupported type ", temp1, "\n");
                 return;
             }
             tableMeta.coldesc.push_back(std::move(desc));
@@ -331,7 +334,7 @@ void Loader::loadToHDFS() {
     }
 
     if (hdfsFlush(fs, writeFile)) {
-        gLog.log<Log::ERROR>(stderr, "Failed to 'flush'", writePath, "\n");
+        gLog.log<Log::LERROR>(stderr, "Failed to 'flush'", writePath, "\n");
         exit(-1);
     }
 
@@ -346,10 +349,15 @@ void Loader::loadToHDFS() {
                 " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
+#endif
 
 void Loader::loadData() {
     if (cmd.tableName.substr(0, 5) == "hdfs.") {
+#ifndef _WINDOWS
         loadToHDFS();
+#else
+        gLog.log<Log::LERROR>("windows don't support this feature\n");
+#endif // !_WINDOWS
     }
     else {
         loadToDB();
@@ -413,6 +421,10 @@ void Loader::initTableMeta(Connection& cnxn) {
             cnxn.diagError("SQLDescibeCol");
         }
 
+        if (!SQL_SUCCEEDED(SQLColAttribute(hstmt, (SQLUBIGINT)(i + 1), SQL_DESC_OCTET_LENGTH, NULL, 0, NULL, &cd.OtectLen))) {
+            cnxn.diagError("SQLColAttribute");
+        }
+
         tableMeta.coldesc.push_back(cd);
         tableMeta.recordSize += cd.Size;
     }
@@ -450,7 +462,7 @@ void Connection::diagError(const std::string& functionName) {
     if (henv) {
         SQLSMALLINT oi = 1;
         while (SQL_SUCCEEDED(SQLGetDiagRec(SQL_HANDLE_ENV, henv, oi, State, &errCode, (SQLCHAR*)errText, sizeof(errText), &olen))) {
-            gLog.log<Log::ERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
+            gLog.log<Log::LERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
             ++oi;
         }
     }
@@ -458,7 +470,7 @@ void Connection::diagError(const std::string& functionName) {
     if (hdbc) {
         SQLSMALLINT oi = 1;
         while (SQL_SUCCEEDED(SQLGetDiagRec(SQL_HANDLE_DBC, hdbc, oi, State, &errCode, (SQLCHAR*)errText, sizeof(errText), &olen))) {
-            gLog.log<Log::ERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
+            gLog.log<Log::LERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
             ++oi;
         }
     }
@@ -466,7 +478,7 @@ void Connection::diagError(const std::string& functionName) {
     if (hstmt) {
         SQLSMALLINT oi = 1;
         while (SQL_SUCCEEDED(SQLGetDiagRec(SQL_HANDLE_STMT, hstmt, oi, State, &errCode, (SQLCHAR*)errText, sizeof(errText), &olen))) {
-            gLog.log<Log::ERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
+            gLog.log<Log::LERROR>("[", functionName, "]State:", State, "\nErrorCode:", errCode, "\nErrorMessage:", errText, "\n");
             ++oi;
         }       
     }

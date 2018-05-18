@@ -7,6 +7,11 @@
 #include <fstream>
 #include <memory>
 
+#ifdef max
+#undef max
+#undef min
+#endif
+
 class CSV_Stream {
 public:
     CSV_Stream(std::istream& is, const char c = ',')
@@ -55,11 +60,17 @@ public:
             }
             for (SQLSMALLINT c = 0; c < tbMeta.ColumnNum; ++c) {
                 if (!putData(r, c, dc.buf + start, tbMeta)) return dc.rowCnt > 0;
-                start += tbMeta.coldesc[c].Size;
-                if (tbMeta.coldesc[c].Type == SQL_CHAR || tbMeta.coldesc[c].Type == SQL_VARCHAR)
-                    *((SQLLEN*)(dc.buf + start)) = SQL_NTS;
-                else
-                    *((SQLLEN*)(dc.buf + start)) = 0;
+                start += tbMeta.coldesc[c].OtectLen;
+
+                switch (tbMeta.coldesc[c].Type)
+                {
+                case SQL_CHAR:
+                case SQL_VARCHAR:
+                case SQL_NUMERIC:
+                    *((SQLLEN*)(dc.buf + start)) = SQL_NTS; break;
+                default:
+                    *((SQLLEN*)(dc.buf + start)) = 0; break;
+                }
                 start += sizeof(SQLLEN);
             }
         }
@@ -195,8 +206,14 @@ private:
 
 class NumericRandFiller : public Filler {
 public:
-    using Filler::Filler;
-//    bool fill(void *buff) override;
+    NumericRandFiller(const std::string& spec);
+    bool fill(void *buff) override;
+private:
+    int prec;
+    int scal;
+    int maxInt;
+    int scaleDiv;
+    Random rnd;
 };
 
 class RandLineFiller : public Filler {
