@@ -36,6 +36,7 @@ struct LoaderCmd {
     void parse(const std::string& cmdStr);
     void print();
 
+    bool psuedo = false;
     char fieldSep = ',';
     char recordSep = '\n';
     char skipToken = '\\';

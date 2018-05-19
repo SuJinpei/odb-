@@ -42,6 +42,9 @@ void LoaderCmd::parse(const std::string& cmdStr) {
             else
                 error("unknown loadcmd:", val);
         }
+        else if (key == "psuedo") {
+            psuedo = true;
+        }
         else {
             error("unsupported load option:", key);
         }

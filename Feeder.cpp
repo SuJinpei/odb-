@@ -213,7 +213,7 @@ NumericRandFiller::NumericRandFiller(const std::string& spec)
 
 bool NumericRandFiller::fill(void *buf) {
     sprintf((char*)buf, fmtstr, (double)(rnd.rand_long(0, maxInt))/scaleDiv);
-    debug_log("numeric string:", , "\n");
+    debug_log("numeric string:", buf, "\n");
     return true;
 }
 
