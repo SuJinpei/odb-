@@ -218,8 +218,7 @@ bool NumericRandFiller::fill(void *buf) {
 }
 
 void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &feeders) {
-    std::string fileName;
-    std::ifstream fin{ fileName };
+    std::ifstream fin{ cmd.mapFile };
 
     if (fin.is_open())
         gLog.log<Log::DEBUG>("map file opened\n");
