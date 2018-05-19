@@ -291,7 +291,7 @@ public:
 
 class MapFeeder: public Feeder {
 public:
-    MapFeeder(std::vector<std::unique_ptr<Filler>>& fllrs, size_t maxr);
+    MapFeeder(std::vector<std::unique_ptr<Filler>> fllrs, size_t maxr);
     bool putData(int r, int c, char *buf, const TableDesc& tbMeta) override;
 
 private:

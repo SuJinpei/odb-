@@ -17,18 +17,22 @@ ifeq ($(v), d)
 endif
 
 SRC=CommandParser.cpp \
+        Command.cpp \
 	Common.cpp \
 	Feeder.cpp \
 	Loader.cpp \
 	Odb.cpp \
+        RandSpeed.cpp \
 	error.cpp \
 	main.cpp
 
 OBJ=CommandParser.o \
+        Command.o \
 	Common.o \
 	Feeder.o \
 	Loader.o \
 	Odb.o \
+        RandSpeed.o \
 	error.o \
 	main.o
 

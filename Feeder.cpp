@@ -119,7 +119,7 @@ bool RandomFeeder::getNext(std::string& s) {
 // Map Feeder
 //################################################################
 
-MapFeeder::MapFeeder(std::vector<std::unique_ptr<Filler>>& fllrs, size_t maxr)
+MapFeeder::MapFeeder(std::vector<std::unique_ptr<Filler>> fllrs, size_t maxr)
     :fillers{ std::move(fllrs) } {
     _maxRows = maxr;
 }
