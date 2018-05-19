@@ -11,7 +11,8 @@
 #include "hbase/hbase.h"
 #endif
 
-Loader::Loader(const LoaderCmd& command):cmd{command} {
+Loader::Loader(const LoaderCmd& command) :cmd{ command } {
+    pFeederFactory = std::unique_ptr<FeederFactory>{ createFeederFactory() };
     maxSize = cmd.parallel * 2;
     isUniqueFeeder = true;
 }
@@ -41,16 +42,18 @@ void Loader::run() {
         setNumConsumer(cmd.parallel);
     }
     else if (cmd.src == "nofile") {
-        setNumProducer(1);
+        setNumProducer(cmd.parallel);
         setNumConsumer(cmd.parallel);
     }
     else {
         setNumConsumer(cmd.parallel);
     }
 
+    pFeederFactory->create(producerNum, feeders);
+
     for (size_t i = 0; i < producerNum; ++i) {
         std::thread tProducer{[&]{
-            this->produceData();
+            this->produceData(i);
         }};
         vps.push_back(std::move(tProducer));
         ++producerCnt;
@@ -580,16 +583,19 @@ void Loader::loadData() {
 #endif // !_WINDOWS
     }
     else if (cmd.tableName.substr(0,6) == "hbase.") {
+#ifndef  _WINDOWS
         loadToHBase();
+#else
+        gLog.log<Log::LERROR>("windows don't support this feature\n");
+#endif // ! _WINDOWS
     }
     else {
         loadToDB();
     }
 }
 
-void Loader::produceData() {
-    std::unique_ptr<Feeder> pFeeder {createFeeder()};
-    while (!(pFeeder->isWorkDone())) {
+void Loader::produceData(size_t index) {
+    while (!(feeders[index]->isWorkDone())) {
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotEmpty.wait(lckEmptyQ, [this]{return !emptyQueue.empty();});
         debug_log("producer>>size of empty queue:", emptyQueue.size(), "\n");
@@ -600,7 +606,7 @@ void Loader::produceData() {
         lckEmptyQ.unlock();
 
         debug_log("filling data...\n");
-        if(pFeeder->feedData(c, tableMeta)) {
+        if(feeders[index]->feedData(c, tableMeta)) {
             std::unique_lock<std::mutex> lckFullQ{mFullQueue};
             condFullQueueNotFull.wait(lckFullQ, [this]{return fullQueue.size() < maxSize;});
             debug_log("producer>>size of full queue:", fullQueue.size(), "\n");
@@ -653,18 +659,18 @@ void Loader::initTableMeta(Connection& cnxn) {
     }
 }
 
-Feeder* Loader::createFeeder() {
+FeederFactory* Loader::createFeederFactory() {
     if (cmd.src == "stdin") {
-        return new StandardInputFeeder();
+        return new StandardInputFeederFactory(cmd);
     }
     else if (cmd.src == "rand") {
-        return new RandomFeeder(cmd.maxRows);
+        return new RandomFeederFactory(cmd);
     }
     else if (cmd.src == "nofile") {
-        return new MapFeeder(cmd.mapFile, cmd.maxRows);
+        return new MapFeederFactory(cmd);
     }
     else {
-        return new CSVFeeder(cmd.src, ' ');
+        return new CSVFeederFactory(cmd);
     }
 }
 
@@ -706,65 +712,4 @@ void Connection::diagError(const std::string& functionName) {
         }       
     }
     error(functionName + " failed");
-}
-
-void LoaderCmd::parse(const std::string& cmdStr) {
-    std::istringstream iss{cmdStr};
-    std::string opt;
-    while (std::getline(iss, opt, ':')) {
-        std::istringstream issOpt{opt};
-        std::string key;
-        std::string val;
-        if (std::getline(issOpt, key, '=')) {
-            std::getline(issOpt, val, '=');
-        }
-
-        if (key == "src") {
-            src = val;
-        }
-        else if (key == "tgt") {
-            tableName = val;
-        }
-        else if (key == "map") {
-            mapFile = val;
-        }
-        else if (key == "max") {
-            maxRows = std::stoul(val);
-        }
-        else if (key == "rows") {
-            rows = std::stoul(val);
-        }
-        else if (key == "parallel") {
-            parallel = std::stoul(val);
-        }
-        else if (key == "sid") {
-            sid = std::stoul(val);
-        }
-        else if (key == "loadcmd") {
-            if (val == "IN")
-                ;// loadMethod = "INSERT";
-            else if (val == "UP")
-                loadMethod = "UPSERT";
-            else if (val == "UL")
-                loadMethod = "UPSERT USING LOAD";
-            else
-                error("unknown loadcmd:", val);
-        }
-        else {
-            error("unsupported load option:", key);
-        }
-    }
-}
-
-void LoaderCmd::print() {
-    gLog.log<Log::INFO>("==========Load CMD========\n");
-    gLog.log<Log::INFO>("DSN:", dbcfg.DSN, "\n");
-    gLog.log<Log::INFO>("UID:", dbcfg.UID, "\n");
-    gLog.log<Log::INFO>("PWD:", dbcfg.PWD, "\n");
-    gLog.log<Log::INFO>("src:", src, "\n");
-    gLog.log<Log::INFO>("tgt:", tableName, "\n");
-    gLog.log<Log::INFO>("rows:",rows, "\n");
-    gLog.log<Log::INFO>("max:", maxRows, "\n");
-    gLog.log<Log::INFO>("parallel:", parallel, "\n");
-    gLog.log<Log::INFO>("==========================\n");
 }
