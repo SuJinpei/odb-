@@ -212,7 +212,7 @@ void Loader::loadToDB() {
         }
 
         debug_log("doing data loading...\n");
-        if ((!cmd.psuedo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) {
+        if ((!cmd.pseudo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) {
             debug_log("retcode:", retcode, "\n");
             cn.diagError("SQLExecute");
         }
@@ -650,6 +650,8 @@ void Loader::initTableMeta(Connection& cnxn) {
                                                &cd.Decimal, &cd.Nullable))) {
             cnxn.diagError("SQLDescibeCol");
         }
+
+        if (cd.Type == SQL_NUMERIC) cd.Type = SQL_DOUBLE;
 
         if (!SQL_SUCCEEDED(SQLColAttribute(hstmt, (SQLUBIGINT)(i + 1), SQL_DESC_OCTET_LENGTH, NULL, 0, NULL, &cd.OtectLen))) {
             cnxn.diagError("SQLColAttribute");

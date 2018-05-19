@@ -36,16 +36,15 @@ long Random::rand_long(long lo, long hi) {
 #endif // _WINDOWS
 }
 
-double Random::rand_double(double lo, double hi, size_t digit) {
-    for (size_t d = digit; d > 0; --d) {
-        lo *= 10;
-        hi *= 10;
-    }
-    double d = rand_long(long(lo), long(hi));
-    for (size_t d = digit; d > 0; --d) {
-        d /= 10;
-    }
+double Random::rand_double(double lo, double hi) {
+#ifdef _WINDOWS
+    std::uniform_real_distribution<double> dist{ lo, hi };
+    return dist(gen);
+#else
+    double d;
+    drand48_r(seed16v, &d);
     return d;
+#endif
 }
 
 std::string Random::rand_str(size_t len) {

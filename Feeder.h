@@ -252,6 +252,17 @@ private:
     char fmtstr[16];
 };
 
+class DoubleRandFiller : public Filler {
+public:
+    DoubleRandFiller(const std::string& spec);
+    bool fill(void * buf) override;
+
+private:
+    double max;
+    double min;
+    Random rnd;
+};
+
 class RandLineFiller : public Filler {
 public:
     using Filler::Filler;

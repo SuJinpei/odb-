@@ -72,7 +72,7 @@ Rand_Stream& Rand_Stream::operator>>(std::string& s) {
         s = std::to_string(r.rand_long(0, 10000000));
         break;
     case SQL_DOUBLE:
-        s = std::to_string(r.rand_double(0, 1000, cdesc[currentColumns].Decimal));
+        s = std::to_string(r.rand_double(0, 1000));
         break;
     case SQL_CHAR:
         s = r.fast_rand_str(cdesc[currentColumns].Size -1);
@@ -217,6 +217,22 @@ bool NumericRandFiller::fill(void *buf) {
     return true;
 }
 
+DoubleRandFiller::DoubleRandFiller(const std::string& spec)
+    : Filler{ spec } {
+    gLog.log<Log::DEBUG>("DoubleRand:", spec, "\n");
+    std::istringstream iss{ spec };
+    std::string mx, mn;
+    std::getline(iss, mn, ':');
+    std::getline(iss, mx, ':');
+    max = std::stod(mx);
+    min = std::stod(mn);
+}
+
+bool DoubleRandFiller::fill(void * buf) {
+    *((double*)buf) = rnd.rand_double(min, max);
+    return true;
+}
+
 void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &feeders) {
     std::ifstream fin{ cmd.mapFile };
 
@@ -266,6 +282,10 @@ void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &
         else if (rule == "DRAND") {
             for (size_t i = 0; i < num; ++i)
                 fillersVec[i].push_back(std::unique_ptr<Filler>{new DateRandFiller{ leftspec }});
+        }
+        else if (rule == "DBLRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new DoubleRandFiller{ leftspec }});
         }
         else {
             std::cerr << "unsupported rule:" << rule << std::endl;

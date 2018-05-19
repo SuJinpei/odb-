@@ -102,7 +102,7 @@ class Random {
 public:
     Random();
     long rand_long(long lo, long hi);
-    double rand_double(double lo, double hi, size_t digit);
+    double rand_double(double lo, double hi);
     std::string rand_str(size_t len);
     std::string fast_rand_str(size_t len);
 private:
