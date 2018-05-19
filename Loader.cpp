@@ -52,7 +52,7 @@ void Loader::run() {
     pFeederFactory->create(producerNum, feeders);
 
     for (size_t i = 0; i < producerNum; ++i) {
-        std::thread tProducer{[&]{
+        std::thread tProducer{[this, i]{
             this->produceData(i);
         }};
         vps.push_back(std::move(tProducer));
@@ -212,10 +212,10 @@ void Loader::loadToDB() {
         }
 
         debug_log("doing data loading...\n");
-        //if (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt))) {
-        //    debug_log("retcode:", retcode, "\n");
-        //    cn.diagError("SQLExecute");
-        //}
+        if (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt))) {
+            debug_log("retcode:", retcode, "\n");
+            cn.diagError("SQLExecute");
+        }
 
         rowsLoaded += lastRowCnt;
         gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
@@ -595,6 +595,7 @@ void Loader::loadData() {
 }
 
 void Loader::produceData(size_t index) {
+    gLog.log<Log::DEBUG>("producer ", index, " start work\n");
     while (!(feeders[index]->isWorkDone())) {
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotEmpty.wait(lckEmptyQ, [this]{return !emptyQueue.empty();});

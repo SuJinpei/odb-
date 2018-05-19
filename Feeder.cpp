@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <cstdio>
 #include <iomanip>
 #include "Feeder.h"
 
@@ -207,13 +208,12 @@ NumericRandFiller::NumericRandFiller(const std::string& spec)
     for (int i = 0; i < scal; ++i) {
         scaleDiv *= 10;
     }
+    sprintf(fmtstr, "%%%d.%df", prec, scal);
 }
 
 bool NumericRandFiller::fill(void *buf) {
-    std::stringstream sstr;
-    sstr << std::setprecision(prec) << (double)(rnd.rand_long(0, maxInt))/scaleDiv;
-    strcpy((char*)buf, sstr.str().c_str());
-    debug_log("numeric string:", sstr.str(), "\n");
+    sprintf((char*)buf, fmtstr, (double)(rnd.rand_long(0, maxInt))/scaleDiv);
+    debug_log("numeric string:", , "\n");
     return true;
 }
 

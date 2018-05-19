@@ -249,6 +249,7 @@ private:
     int maxInt;
     int scaleDiv;
     Random rnd;
+    char fmtstr[16];
 };
 
 class RandLineFiller : public Filler {
