@@ -18,53 +18,6 @@
 #include <sstream>
 #include <limits>
 
-
-struct LoaderCmd {
-    LoaderCmd(const DBConfig& dbc, const std::string& cmdStr): dbcfg(dbc) { parse(cmdStr); }
-    void parse(const std::string& cmdStr);
-    void print();
-    DBConfig dbcfg;
-    std::string src;
-    std::string tableName;
-    std::string mapFile;
-    std::string fieldSep;
-    std::string recordSep;
-    std::string skipToken;
-    std::string nullString;
-    char        escapeChar;
-    char        stringQualifier;
-    char        padChar;
-    char        embededChar;
-    int         commit; // auto|end|#rows|x#rs
-    bool        norb;
-    bool        full;
-    bool        truncate;
-    bool        show;
-    bool        noMark;
-    bool        ifempty;
-    bool        direct;
-    bool        timeOpt;
-    bool        xmlord;
-    bool        xmldump;
-    size_t      bytesPerChar;
-    size_t      bytesPerWChar;
-    size_t maxErrorCnt = std::numeric_limits<size_t>::max();
-    size_t maxRows = std::numeric_limits<size_t>::max();
-    size_t rows = 100;
-    size_t parallel = 1;
-    size_t iobuffSize;
-    size_t buffsz;
-    size_t fieldtrunc; // {0-4}
-    size_t tpar;        // #tables
-    size_t maxlen;      // #bytes
-    size_t sid = 0;
-    std::string pre;    // {@sqlfile} | {sqlcmd}
-    std::string post;   // {@sqlfile} | {sqlcmd}
-    std::string bad;    // [+]badfile
-    std::string loadMethod{"INSERT"};
-    std::string xmltag; // [+]element
-};
-
 struct Connection {
     Connection(const DBConfig& dc) {
         check(SQLAllocHandle(SQL_HANDLE_ENV, NULL, &henv), "alloc handle");
@@ -105,7 +58,7 @@ public:
     Loader(const LoaderCmd& command);
     void run();
     void loadData();
-    void produceData();
+    void produceData(size_t index);
     void setNumConsumer(size_t n);
     void setNumProducer(size_t n);
 
@@ -118,7 +71,7 @@ private:
 #endif
 
     void initTableMeta(Connection& cnxn);
-    Feeder *createFeeder();
+    FeederFactory *createFeederFactory();
 
     TableDesc tableMeta;
     std::string loadQuery;
@@ -129,6 +82,9 @@ private:
 
     std::queue<DataContainer> emptyQueue;
     std::queue<DataContainer> fullQueue;
+
+    std::vector<std::unique_ptr<Feeder>> feeders;
+    std::unique_ptr<FeederFactory> pFeederFactory;
 
     std::mutex mEmptyQueue;
     std::mutex mFullQueue;

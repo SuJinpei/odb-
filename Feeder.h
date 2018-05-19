@@ -1,16 +1,12 @@
 #pragma once
 #include "DataContainer.h"
 #include "Common.h"
+#include "Command.h"
 #include <cstring>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 #include <memory>
-
-#ifdef max
-#undef max
-#undef min
-#endif
 
 class CSV_Stream {
 public:
@@ -91,11 +87,30 @@ protected:
     size_t _maxRows = std::numeric_limits<size_t>::max();
 };
 
+class FeederFactory {
+public:
+    FeederFactory(const LoaderCmd& command) :cmd{ command } {}
+    virtual void create(size_t num, std::vector<std::unique_ptr<Feeder>>& feeders) = 0;
+
+protected:
+    const LoaderCmd& cmd;
+};
+
 class StandardInputFeeder: public Feeder {
 public:
 
     bool putData(int r, int c, char *buf, const TableDesc& tbMeta) override;
     bool getNext(std::string& s) override;
+};
+
+class StandardInputFeederFactory : public FeederFactory {
+public:
+    using FeederFactory::FeederFactory;
+    void create(size_t num, std::vector<std::unique_ptr<Feeder>>& feeders) override {
+        for (size_t i = 0; i < num; ++i) {
+            feeders.push_back(std::unique_ptr<Feeder>{ new StandardInputFeeder() });
+        }
+    }
 };
 
 class CSVFeeder: public Feeder {
@@ -112,9 +127,19 @@ private:
     CSV_Stream icsvs;
 };
 
+class CSVFeederFactory : public FeederFactory {
+public:
+    using FeederFactory::FeederFactory;
+    void create(size_t num, std::vector<std::unique_ptr<Feeder>>& feeders) override {
+        for (size_t i = 0; i < num; ++i) {
+            feeders.push_back(std::unique_ptr<Feeder>{new CSVFeeder(cmd.src, cmd.fieldSep)});
+        }
+    }
+};
+
 class RandomFeeder: public Feeder {
 public:
-    RandomFeeder(size_t maxRows);
+    explicit RandomFeeder(size_t maxRows);
 
     bool putData(int r, int c, char *buf, const TableDesc& tbMeta) override;
 
@@ -126,6 +151,16 @@ private:
     Rand_Stream rs;
     size_t rowLoaded = 0;
     size_t maxRows;
+};
+
+class RandomFeederFactory : public FeederFactory {
+public:
+    using FeederFactory::FeederFactory;
+    void create(size_t num, std::vector<std::unique_ptr<Feeder>>& feeders) override {
+        for (size_t i = 0; i < num; ++i) {
+            feeders.push_back(std::unique_ptr<Feeder>{new RandomFeeder(cmd.maxRows)});
+        }
+    }
 };
 
 
@@ -256,13 +291,17 @@ public:
 
 class MapFeeder: public Feeder {
 public:
-    MapFeeder(std::string fileName, size_t maxRows);
+    MapFeeder(std::vector<std::unique_ptr<Filler>>& fllrs, size_t maxr);
     bool putData(int r, int c, char *buf, const TableDesc& tbMeta) override;
 
 private:
     bool fillData(int c, char *buf);
 
-    std::ifstream fin;
     std::vector<std::unique_ptr<Filler>> fillers;
 };
 
+class MapFeederFactory : public FeederFactory {
+public:
+    using FeederFactory::FeederFactory;
+    void create(size_t num, std::vector<std::unique_ptr<Feeder>> &fillers) override;
+};

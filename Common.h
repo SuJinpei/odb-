@@ -1,16 +1,25 @@
 #pragma once
 #ifdef _WINDOWS
 #include <Windows.h>
+#ifdef max
+#undef max
+#undef min
 #endif
+#endif
+
 #include <sqlext.h>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <mutex>
 #include <algorithm>
-//#include <random>
 #include <cstdlib>
 #include <ctime>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <random>
 
 extern std::mutex mutexIO;
 extern std::mutex mutexLog;

@@ -119,47 +119,9 @@ bool RandomFeeder::getNext(std::string& s) {
 // Map Feeder
 //################################################################
 
-MapFeeder::MapFeeder(std::string fileName, size_t maxRows)
-        :fin{fileName} {
-    _maxRows = maxRows;
-
-    if (fin.is_open())
-        gLog.log<Log::DEBUG>("map file opened\n");
-    else {
-        gLog.log<Log::LERROR>("map file open failed\n");
-        throw std::runtime_error("open map file");
-    }
-
-    for (std::string line; std::getline(fin, line);) {
-        gLog.log<Log::DEBUG>("read map line:", line, "\n");
-        std::string Name;
-        std::string rule;
-        std::string leftspec;
-
-        std::istringstream iss{line};
-        std::getline(iss, Name, ':');
-        std::getline(iss, rule, ':');
-        std::getline(iss, leftspec);
-
-        if (rule == "SEQ") {
-            fillers.push_back(std::unique_ptr<Filler>{new SeqLongFiller{leftspec}});
-        }
-        else if (rule == "IRAND") {
-            fillers.push_back(std::unique_ptr<Filler>{new IrandFiller{leftspec}});
-        }
-        else if (rule == "NRAND") {
-            fillers.push_back(std::unique_ptr<Filler>{new NumericRandFiller{leftspec}});
-        }
-        else if (rule == "CRAND") {
-            fillers.push_back(std::unique_ptr<Filler>{new CharsRandFiller{leftspec}});
-        }
-        else if (rule == "DRAND") {
-            fillers.push_back(std::unique_ptr<Filler>{new DateRandFiller{leftspec}});
-        }
-        else {
-            std::cerr << "unsupported rule:" << rule << std::endl;
-        }
-    }
+MapFeeder::MapFeeder(std::vector<std::unique_ptr<Filler>>& fllrs, size_t maxr)
+    :fillers{ std::move(fllrs) } {
+    _maxRows = maxr;
 }
 
 bool MapFeeder::putData(int , int c, char *buf, const TableDesc& ) {
@@ -253,4 +215,68 @@ bool NumericRandFiller::fill(void *buf) {
     strcpy((char*)buf, sstr.str().c_str());
     debug_log("numeric string:", sstr.str(), "\n");
     return true;
+}
+
+void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &feeders) {
+    std::string fileName;
+    std::ifstream fin{ fileName };
+
+    if (fin.is_open())
+        gLog.log<Log::DEBUG>("map file opened\n");
+    else {
+        gLog.log<Log::LERROR>("map file open failed\n");
+        throw std::runtime_error("open map file");
+    }
+
+    std::vector<std::vector<std::unique_ptr<Filler>>> fillersVec{ num };
+    size_t d = cmd.maxRows / num;
+    size_t leftr = cmd.maxRows;
+
+    for (std::string line; std::getline(fin, line);) {
+        gLog.log<Log::DEBUG>("read map line:", line, "\n");
+        std::string Name;
+        std::string rule;
+        std::string leftspec;
+
+        std::istringstream iss{ line };
+        std::getline(iss, Name, ':');
+        std::getline(iss, rule, ':');
+        std::getline(iss, leftspec);
+
+        if (rule == "SEQ") {
+            // seqstart
+            size_t seqstart = std::stoul(leftspec);
+
+            for (size_t i = 0; i < num; ++i) {
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new SeqLongFiller{ std::to_string(seqstart) }});
+                seqstart += d;
+            }
+        }
+        else if (rule == "IRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new IrandFiller{ leftspec }});
+        }
+        else if (rule == "NRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new NumericRandFiller{ leftspec }});
+        }
+        else if (rule == "CRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new CharsRandFiller{ leftspec }});
+        }
+        else if (rule == "DRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new DateRandFiller{ leftspec }});
+        }
+        else {
+            std::cerr << "unsupported rule:" << rule << std::endl;
+        }
+    }
+
+    for (size_t i = 0; i < num - 1; ++i) {
+        feeders.push_back(std::unique_ptr<Feeder>{new MapFeeder(std::move(fillersVec[i]), d)});
+        leftr -= d;
+    }
+    feeders.push_back(std::unique_ptr<Feeder>{new MapFeeder(std::move(fillersVec[num-1]), leftr)});
+
 }

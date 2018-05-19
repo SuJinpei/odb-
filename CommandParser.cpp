@@ -38,6 +38,9 @@ Command CommandParser::parse() {
         else if (opt == "-vv") {
             gLog.setLevel(Log::DEBUG);
         }
+        else if (opt == "-trand") {
+            parseTask(Task::TEST_RAND_SPEED);
+        }
         else {
             error("unknown option:", opt);
         }
