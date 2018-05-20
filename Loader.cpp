@@ -49,15 +49,16 @@ void Loader::run() {
         setNumConsumer(cmd.parallel);
     }
 
-    pFeederFactory->create(producerNum, feeders);
-
-    for (size_t i = 0; i < producerNum; ++i) {
-        std::thread tProducer{[this, i]{
-            this->produceData(i);
-        }};
-        vps.push_back(std::move(tProducer));
-        ++producerCnt;
-    }
+    std::thread tProducerInit{ [&] {
+        pFeederFactory->create(producerNum, feeders);
+        for (size_t i = 0; i < producerNum; ++i) {
+            std::thread tProducer{[this, i] {
+                this->produceData(i);
+            }};
+            vps.push_back(std::move(tProducer));
+            ++producerCnt;
+        }
+    } };
 
     for (size_t i = 0, mx = consumNumer; i < mx; ++i) {
         std::thread tLoader {
@@ -68,6 +69,8 @@ void Loader::run() {
         vcs.push_back(std::move(tLoader));
         ++consumerCnt;
     }
+
+    tProducerInit.join();
 
     for(auto& t:vps) {
         t.join();
