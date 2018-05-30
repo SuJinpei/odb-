@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <chrono>
 #include <sstream>
 #include <condition_variable>
@@ -24,6 +24,8 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
         return SQL_C_CHAR;
     //case SQL_NUMERIC:
     //    return SQL_C_NUMERIC;
+    case SQL_DOUBLE:
+        return SQL_C_DOUBLE;
     default:
         return SQL_C_DEFAULT;
     }
@@ -246,7 +248,7 @@ void Loader::loadToDB() {
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
 
-#ifndef _WINDOWS
+#ifndef 0
 
 struct PutContext {
     bool flush_done;
@@ -579,14 +581,14 @@ void Loader::loadToHDFS() {
 
 void Loader::loadData() {
     if (cmd.tableName.substr(0, 5) == "hdfs.") {
-#ifndef _WINDOWS
+#if 0
         loadToHDFS();
 #else
         gLog.log<Log::LERROR>("windows don't support this feature\n");
 #endif // !_WINDOWS
     }
     else if (cmd.tableName.substr(0,6) == "hbase.") {
-#ifndef  _WINDOWS
+#if 0
         loadToHBase();
 #else
         gLog.log<Log::LERROR>("windows don't support this feature\n");

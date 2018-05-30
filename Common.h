@@ -106,7 +106,7 @@ public:
     std::string rand_str(size_t len);
     std::string fast_rand_str(size_t len);
 private:
-    std::string rand_char_seqs;
+    static std::string rand_char_seqs;
     static const std::string chars;
 #ifdef _WINDOWS
     std::random_device rd;
