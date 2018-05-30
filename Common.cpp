@@ -42,7 +42,7 @@ double Random::rand_double(double lo, double hi) {
     return dist(gen);
 #else
     double d;
-    drand48_r(seed16v, &d);
+    drand48_r(&randbuf, &d);
     return d;
 #endif
 }

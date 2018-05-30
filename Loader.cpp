@@ -24,6 +24,8 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
         return SQL_C_CHAR;
     //case SQL_NUMERIC:
     //    return SQL_C_NUMERIC;
+    case SQL_DOUBLE:
+         return SQL_C_DOUBLE;
     default:
         return SQL_C_DEFAULT;
     }
@@ -49,7 +51,6 @@ void Loader::run() {
         setNumConsumer(cmd.parallel);
     }
 
-    std::thread tProducerInit{ [&] {
         pFeederFactory->create(producerNum, feeders);
         for (size_t i = 0; i < producerNum; ++i) {
             std::thread tProducer{[this, i] {
@@ -58,7 +59,6 @@ void Loader::run() {
             vps.push_back(std::move(tProducer));
             ++producerCnt;
         }
-    } };
 
     for (size_t i = 0, mx = consumNumer; i < mx; ++i) {
         std::thread tLoader {
@@ -70,7 +70,6 @@ void Loader::run() {
         ++consumerCnt;
     }
 
-    tProducerInit.join();
 
     for(auto& t:vps) {
         t.join();
@@ -490,6 +489,10 @@ void Loader::loadToHDFS() {
                      temp1 == "IRAND") {
                 desc.Size = 12;
                 desc.Type = SQL_INTEGER;
+            }
+            else if (temp1 == "DBLRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_DOUBLE;
             }
             else {
                 gLog.log<Log::LERROR>("unsupported type ", temp1, "\n");
