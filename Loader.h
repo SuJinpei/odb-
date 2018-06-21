@@ -4,7 +4,7 @@
 #include "DataContainer.h"
 #include "Feeder.h"
 
-#ifndef _WINDOWS
+#if 0
 #include "hdfs.h"
 #endif
 
@@ -20,12 +20,12 @@
 
 struct Connection {
     Connection(const DBConfig& dc) {
-        check(SQLAllocHandle(SQL_HANDLE_ENV, NULL, &henv), "alloc handle");
+        check(SQLAllocHandle(SQL_HANDLE_ENV, NULL, &henv), "alloc env handle");
         check(SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, SQL_NTS), "SQLSetEnvAttr");
-        check(SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc), "Alloc Handle");
+        check(SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc), "Alloc Connection Handle");
         std::cout << "connectting to " << dc.DSN << std::endl;
         check(SQLConnect(hdbc, (SQLCHAR*)dc.DSN.c_str(), SQL_NTS, (SQLCHAR*)dc.UID.c_str(), SQL_NTS, (SQLCHAR*)dc.PWD.c_str(), SQL_NTS), "SQLConnect");
-        check(SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt), "Alloc Handle");
+        check(SQLAllocStmt(hdbc, &hstmt), "Alloc Statement Handle");
     }
 
     ~Connection() {
@@ -50,20 +50,21 @@ struct Connection {
         return hdbc;
     }
 
-    SQLHANDLE henv, hdbc, hstmt;
+    SQLHANDLE henv;
+    SQLHANDLE hdbc, hstmt;
 };
 
 class Loader {
 public:
     Loader(const LoaderCmd& command);
     void run();
-    void loadData();
+    void loadData(size_t id);
     void produceData(size_t index);
     void setNumConsumer(size_t n);
     void setNumProducer(size_t n);
 
 private:
-    void loadToDB();
+    void loadToDB(size_t id);
 
 #ifndef _WINDOWS
     void loadToHDFS();
@@ -72,6 +73,12 @@ private:
 
     void initTableMeta(Connection& cnxn);
     FeederFactory *createFeederFactory();
+
+    // monitor
+    bool timeOut = false;
+    bool go = true;
+    std::mutex mutexGo;
+    std::condition_variable condGo;
 
     TableDesc tableMeta;
     std::string loadQuery;
@@ -100,6 +107,8 @@ private:
     std::atomic_size_t consumerCnt {0}; 
     std::atomic_size_t totalLoadedRows {0};
     std::atomic_size_t lid {1};
+
+    std::vector<size_t> statsLoadedRows;
 
     size_t consumNumer = 1;
     size_t producerNum = 1;

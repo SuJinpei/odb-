@@ -72,9 +72,12 @@ struct LoaderCmd {
     size_t tpar;        // #tables
     size_t maxlen;      // #bytes
     size_t sid = 0;
+    size_t statInterval = 5000;
+    size_t maxTime = 0;
     std::string pre;    // {@sqlfile} | {sqlcmd}
     std::string post;   // {@sqlfile} | {sqlcmd}
     std::string bad;    // [+]badfile
     std::string loadMethod{ "INSERT" };
     std::string xmltag; // [+]element
+    std::string monitorFile; // monitor file
 };

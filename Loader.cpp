@@ -3,11 +3,12 @@
 #include <sstream>
 #include <condition_variable>
 #include <map>
+#include <functional>
 #include <random>
 #include <limits>
 #include "error.h"
 #include "Loader.h"
-#ifndef _WINDOWS
+#if 0
 #include "hbase/hbase.h"
 #endif
 
@@ -44,35 +45,36 @@ void Loader::run() {
         setNumConsumer(cmd.parallel);
     }
     else if (cmd.src == "nofile") {
-        setNumProducer(cmd.parallel);
+        setNumProducer((size_t)std::sqrt(cmd.parallel));
         setNumConsumer(cmd.parallel);
     }
     else {
         setNumConsumer(cmd.parallel);
     }
 
-    std::thread tProducerInit{ [&] {
-        pFeederFactory->create(producerNum, feeders);
-        for (size_t i = 0; i < producerNum; ++i) {
-            std::thread tProducer{[this, i] {
-                this->produceData(i);
-            }};
-            vps.push_back(std::move(tProducer));
-            ++producerCnt;
-        }
-    } };
+    statsLoadedRows.resize(consumNumer);
 
-    for (size_t i = 0, mx = consumNumer; i < mx; ++i) {
+    pFeederFactory->create(producerNum, feeders);
+    for (size_t i = 0; i < producerNum; ++i) {
+        size_t id = i;
+        std::thread tProducer{[this, id] {
+            this->produceData(id);
+        }};
+        vps.push_back(std::move(tProducer));
+        ++producerCnt;
+    }
+
+    for (size_t i = 0; i < consumNumer; ++i) {
+        size_t id = i;
         std::thread tLoader {
-            [&]{
-                this->loadData();
+            [=]{
+                this->loadData(id);
             }
         };
         vcs.push_back(std::move(tLoader));
         ++consumerCnt;
     }
 
-    tProducerInit.join();
 
     for(auto& t:vps) {
         t.join();
@@ -83,14 +85,20 @@ void Loader::run() {
     }
 }
 
-void Loader::loadToDB() {
+struct MonitorLog {
+    MonitorLog(std::ostream& _os) :os{ _os } {}
+    std::ostream& os;
+};
+
+void Loader::loadToDB(size_t id) {
     Connection cn {cmd.dbcfg};
     bool isParameterBind = false;
     size_t lastRowCnt = 0;
-    size_t rowsLoaded = 0;
     SQLRETURN retcode = 0;
     SQLHANDLE hdesc = NULL;
+    std::vector<std::thread> monitors;
 
+    statsLoadedRows[id] = 0;
     // intialize table meta
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
 
@@ -126,6 +134,62 @@ void Loader::loadToDB() {
         tLoadStart = std::chrono::high_resolution_clock::now();
         gLog.log<Log::INFO>("intialize time:",
                 std::chrono::duration_cast<std::chrono::milliseconds>(tLoadStart - tRunStart).count(), "\n");
+
+        // first thread start monitor thread
+        std::thread threadMonitor{[this]{
+            size_t lastCnt = 0;
+            size_t newCnt = 0;
+
+            time_t rawtime;
+            struct tm * timeinfo;
+            char buffer[80];
+
+            std::reference_wrapper<std::ostream> osLog = std::cout;
+
+            std::ofstream ofsLog;
+            if (!cmd.monitorFile.empty()) {
+                ofsLog.open(cmd.monitorFile);
+                if (ofsLog.is_open()) {
+                    osLog = ofsLog;
+                }
+            }
+
+            while(true) {
+                auto startTime = std::chrono::high_resolution_clock::now();
+                std::unique_lock<std::mutex> lck{mutexGo};
+                condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
+                if (!go) break;
+                auto endTime = std::chrono::high_resolution_clock::now();
+                std::cout << "***TEMP DEBUG MSG duration:" << std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count() << std::endl;
+
+                time (&rawtime);
+                timeinfo = localtime(&rawtime);
+                strftime(buffer,sizeof(buffer),"%Y-%m-%d %I:%M:%S", timeinfo);
+
+                for(size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                    newCnt += this->statsLoadedRows[i];
+                }
+
+                osLog.get() << buffer << " real time speed:" << (double)(newCnt-lastCnt)/cmd.statInterval * 1000 << " rows/s\n";
+                osLog.get().flush();
+
+                lastCnt = newCnt;
+                newCnt = 0;
+            }
+        }};
+        monitors.push_back(std::move(threadMonitor));
+        if (cmd.maxTime) {
+            monitors.push_back(std::thread {
+                               [this]{
+                               std::this_thread::sleep_for(std::chrono::seconds(cmd.maxTime));
+                               timeOut = true;
+                               go = false;
+                               condGo.notify_all();
+                               gLog.log<Log::INFO>("timeout exit\n");
+                               }
+                               });
+
+        }
     }
 
     lckTableMeta.unlock();
@@ -222,8 +286,8 @@ void Loader::loadToDB() {
             cn.diagError("SQLExecute");
         }
 
-        rowsLoaded += lastRowCnt;
-        gLog.log<Log::INFO>(lastRowCnt, " rows loaded\n");
+        statsLoadedRows[id] += lastRowCnt;
+        gLog.log<Log::DEBUG>(lastRowCnt, " rows loaded\n");
 
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotFull.wait(lckEmptyQ, [this]{return (emptyQueue.size() < maxSize) || (producerCnt == 0);});
@@ -238,17 +302,22 @@ void Loader::loadToDB() {
         condEmptyQueueNotEmpty.notify_one();
     }
 
-    totalLoadedRows += rowsLoaded;
+    totalLoadedRows += statsLoadedRows[id];
     gLog.log<Log::INFO>("loading thread exit\n");
     if(--consumerCnt == 0) {
         tLoadEnd = std::chrono::high_resolution_clock::now();
         auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
         gLog.log<Log::INFO>("loading time:", tElapsed,
                 " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
-                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
+                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n");
+    }
+
+    for(auto& th : monitors) {
+        th.join();
+    }
 }
 
-#ifndef 0
+#if 0
 
 struct PutContext {
     bool flush_done;
@@ -493,6 +562,10 @@ void Loader::loadToHDFS() {
                 desc.Size = 12;
                 desc.Type = SQL_INTEGER;
             }
+            else if (temp1 == "DBLRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_DOUBLE;
+            }
             else {
                 gLog.log<Log::LERROR>("unsupported type ", temp1, "\n");
                 return;
@@ -579,7 +652,7 @@ void Loader::loadToHDFS() {
 }
 #endif
 
-void Loader::loadData() {
+void Loader::loadData(size_t id) {
     if (cmd.tableName.substr(0, 5) == "hdfs.") {
 #if 0
         loadToHDFS();
@@ -595,13 +668,13 @@ void Loader::loadData() {
 #endif // ! _WINDOWS
     }
     else {
-        loadToDB();
+        loadToDB(id);
     }
 }
 
 void Loader::produceData(size_t index) {
     gLog.log<Log::DEBUG>("producer ", index, " start work\n");
-    while (!(feeders[index]->isWorkDone())) {
+    while (!(feeders[index]->isWorkDone() || timeOut)) {
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
         condEmptyQueueNotEmpty.wait(lckEmptyQ, [this]{return !emptyQueue.empty();});
         debug_log("producer>>size of empty queue:", emptyQueue.size(), "\n");
@@ -623,6 +696,8 @@ void Loader::produceData(size_t index) {
         }
     }
     if(--producerCnt == 0) condFullQueueNotEmpty.notify_all();
+    go = false;
+    condGo.notify_all();
     gLog.log<Log::DEBUG>("producer exit\n");
 }
 

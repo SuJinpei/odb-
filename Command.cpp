@@ -32,6 +32,15 @@ void LoaderCmd::parse(const std::string& cmdStr) {
         else if (key == "sid") {
             sid = std::stoul(val);
         }
+        else if (key == "statInterval") {
+            statInterval = std::stoul(val);
+        }
+        else if (key == "monitorFile") {
+            monitorFile = val;
+        }
+        else if (key == "maxTime") {
+            maxTime = std::stoul(val);
+        }
         else if (key == "loadcmd") {
             if (val == "IN")
                 ;// loadMethod = "INSERT";
@@ -42,7 +51,7 @@ void LoaderCmd::parse(const std::string& cmdStr) {
             else
                 error("unknown loadcmd:", val);
         }
-        else if (key == "psuedo") {
+        else if (key == "pseudo") {
             pseudo = true;
         }
         else {
