@@ -1,9 +1,9 @@
 PROGRAM=odb
 INCLUDE=-I. -I./include
-LIBPATH=
+LIBPATH=-L./lib
 ODIR=obj
 CC=g++
-LINK_FLAGS=-lodbc -lpthread
+LINK_FLAGS=-lodbc -lpthread -ldl -ltcp
 
 ifeq ($(cut), 1)
 INCLUDE += -I./include
@@ -17,22 +17,24 @@ ifeq ($(v), d)
 endif
 
 SRC=CommandParser.cpp \
-        Command.cpp \
+    Command.cpp \
 	Common.cpp \
 	Feeder.cpp \
 	Loader.cpp \
 	Odb.cpp \
-        RandSpeed.cpp \
+    RandSpeed.cpp \
+    RunTimeLib.cpp \
 	error.cpp \
 	main.cpp
 
 OBJ=CommandParser.o \
-        Command.o \
+    Command.o \
 	Common.o \
 	Feeder.o \
 	Loader.o \
 	Odb.o \
-        RandSpeed.o \
+    RandSpeed.o \
+    RunTimeLib.o \
 	error.o \
 	main.o
 

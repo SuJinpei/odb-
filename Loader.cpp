@@ -8,9 +8,43 @@
 #include <limits>
 #include "error.h"
 #include "Loader.h"
+#include "RunTimeLib.h"
+#include "TCPServer.h"
+#include "TCPClient.h"
 #if 0
 #include "hbase/hbase.h"
 #endif
+
+void printloadbuf(void *buf, TableDesc& meta, size_t rows) {
+    size_t start = 0;
+    for (size_t r = 0; r < rows; ++r) {
+        for (SQLSMALLINT c = 0; c < meta.ColumnNum; ++c) {
+            //gLog.log<Log::INFO>("sqltype:", meta.coldesc[c].Type, ":");
+            switch (meta.coldesc[c].Type)
+            {
+            case SQL_INTEGER:
+                gLog.log<Log::INFO>("ld:", *((long*)((char*)buf + start)));
+                break;
+            case SQL_DOUBLE:
+                gLog.log<Log::INFO>("f:", *((double*)((char*)buf + start)));
+                break;
+            case SQL_DATE:
+            case SQL_TYPE_DATE:
+                gLog.log<Log::INFO>("date:");
+                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).year, "-");
+                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).month, "-");
+                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).day);
+                break;
+            default:
+                gLog.log<Log::INFO>("s:", (char*)buf + start);
+                break;
+            }
+            gLog.log<Log::INFO>("|", *((SQLLEN*)((char*)buf + start + meta.coldesc[c].OtectLen)), ",\t");
+            start += meta.coldesc[c].OtectLen + sizeof(SQLLEN);
+        }
+        gLog.log<Log::INFO>("\n");
+    }
+}
 
 Loader::Loader(const LoaderCmd& command) :cmd{ command } {
     pFeederFactory = std::unique_ptr<FeederFactory>{ createFeederFactory() };
@@ -23,10 +57,6 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
     case SQL_CHAR:
     case SQL_VARCHAR:
         return SQL_C_CHAR;
-    //case SQL_NUMERIC:
-    //    return SQL_C_NUMERIC;
-    case SQL_DOUBLE:
-        return SQL_C_DOUBLE;
     default:
         return SQL_C_DEFAULT;
     }
@@ -45,7 +75,7 @@ void Loader::run() {
         setNumConsumer(cmd.parallel);
     }
     else if (cmd.src == "nofile") {
-        setNumProducer((size_t)std::sqrt(cmd.parallel));
+        setNumProducer(cmd.parallel < 10 ? cmd.parallel:((size_t)std::sqrt(cmd.parallel - 10) + 10));
         setNumConsumer(cmd.parallel);
     }
     else {
@@ -98,6 +128,11 @@ void Loader::loadToDB(size_t id) {
     SQLHANDLE hdesc = NULL;
     std::vector<std::thread> monitors;
 
+    // distribute objects
+    std::vector<TCPConnection> clientsConnection;
+    std::unique_ptr<TCPServer> pServer;
+    std::unique_ptr<TCPClient> pClient;
+
     statsLoadedRows[id] = 0;
     // intialize table meta
     std::unique_lock<std::mutex> lckTableMeta{mutexTableMeta};
@@ -131,12 +166,30 @@ void Loader::loadToDB(size_t id) {
         loadQuery[loadQuery.size() - 1] = ')';
 
         isTableMetaInitialized = true;
+
+        // if distribution mode first thread create server connection
+        if (cmd.cmd.runMode == Command::SERVER) {
+            pServer.reset(new TCPServer(cmd.cmd.IPAddr, cmd.cmd.portNo));
+            for (size_t i = 0; i < cmd.cmd.numRequest; ++i) {
+                clientsConnection.push_back(pServer->accept());
+            }
+            for (auto& conn : clientsConnection) {
+                conn.send("go", 3);
+            }
+        }
+        else if (cmd.cmd.runMode == Command::CLIENT) {
+            pClient.reset(new TCPClient(cmd.cmd.IPAddr, cmd.cmd.portNo));
+            char message[8];
+            pClient->recv(message, sizeof(message));
+            gLog.log<Log::INFO>("receive server command:", message, "\n");
+        }
+
         tLoadStart = std::chrono::high_resolution_clock::now();
         gLog.log<Log::INFO>("intialize time:",
                 std::chrono::duration_cast<std::chrono::milliseconds>(tLoadStart - tRunStart).count(), "\n");
 
         // first thread start monitor thread
-        std::thread threadMonitor{[this]{
+        std::thread threadMonitor{[&, this]{
             size_t lastCnt = 0;
             size_t newCnt = 0;
 
@@ -154,27 +207,88 @@ void Loader::loadToDB(size_t id) {
                 }
             }
 
-            while(true) {
-                auto startTime = std::chrono::high_resolution_clock::now();
-                std::unique_lock<std::mutex> lck{mutexGo};
-                condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
-                if (!go) break;
-                auto endTime = std::chrono::high_resolution_clock::now();
-                std::cout << "***TEMP DEBUG MSG duration:" << std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count() << std::endl;
+            // if is server start server
+            if (cmd.cmd.runMode == Command::SERVER) {
+                std::vector<size_t> instanceLoadedRows(cmd.cmd.numRequest);
+                while (true) {
+                    std::unique_lock<std::mutex> lck{ mutexGo };
+                    condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
+                    if (!go) break;
 
-                time (&rawtime);
-                timeinfo = localtime(&rawtime);
-                strftime(buffer,sizeof(buffer),"%Y-%m-%d %I:%M:%S", timeinfo);
+                    for (auto& conn : clientsConnection) {
+                        std::string message = "send me stats";
+                        conn.send(message.c_str(), message.length());
+                    }
 
-                for(size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
-                    newCnt += this->statsLoadedRows[i];
+                    for (size_t i = 0; i < clientsConnection.size(); ++i) {
+                        size_t loadedNum;
+                        clientsConnection[i].recv(&loadedNum, sizeof(loadedNum));
+                        instanceLoadedRows[i] = loadedNum;
+                    }
+
+                    time(&rawtime);
+                    timeinfo = localtime(&rawtime);
+                    strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S", timeinfo);
+
+                    for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                        newCnt += this->statsLoadedRows[i];
+                    }
+
+                    size_t selfLoaded = newCnt - lastCnt;
+                    size_t allTotalLoaded = selfLoaded;
+
+                    for (auto l : instanceLoadedRows) {
+                        allTotalLoaded += l;
+                    }
+
+                    osLog.get() << buffer << " total real time speed:" << (double)(allTotalLoaded) / cmd.statInterval * 1000 << " rows/s, "
+                                << (double)allTotalLoaded * rowWidth / (cmd.statInterval * 1.024 * 1024) << " MB/s\n";
+                    osLog.get().flush();
+
+                    lastCnt = newCnt;
+                    newCnt = 0;
                 }
+            }
+            else if (cmd.cmd.runMode == Command::CLIENT) {
+                // listen server command
+                while (go) {
+                    char buf[128];
+                    pClient->recv(buf, sizeof(buf));
 
-                osLog.get() << buffer << " real time speed:" << (double)(newCnt-lastCnt)/cmd.statInterval * 1000 << " rows/s\n";
-                osLog.get().flush();
+                    for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                        newCnt += this->statsLoadedRows[i];
+                    }
 
-                lastCnt = newCnt;
-                newCnt = 0;
+                    size_t intervalLoaded = newCnt - lastCnt;
+                    pClient->send(&intervalLoaded, sizeof(intervalLoaded));
+                    osLog.get() << buffer << " real time speed:" << (double)intervalLoaded / cmd.statInterval * 1000 << " rows/s\n";
+                    osLog.get().flush();
+
+                    lastCnt = newCnt;
+                    newCnt = 0;
+                }
+            }
+            else {
+                while (true) {
+                    std::unique_lock<std::mutex> lck{ mutexGo };
+                    condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
+                    if (!go) break;
+                    auto endTime = std::chrono::high_resolution_clock::now();
+
+                    time(&rawtime);
+                    timeinfo = localtime(&rawtime);
+                    strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S", timeinfo);
+
+                    for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                        newCnt += this->statsLoadedRows[i];
+                    }
+
+                    osLog.get() << buffer << " real time speed:" << (double)(newCnt - lastCnt) / cmd.statInterval * 1000 << " rows/s\n";
+                    osLog.get().flush();
+
+                    lastCnt = newCnt;
+                    newCnt = 0;
+                }
             }
         }};
         monitors.push_back(std::move(threadMonitor));
@@ -281,7 +395,11 @@ void Loader::loadToDB(size_t id) {
         }
 
         debug_log("doing data loading...\n");
-        if ((!cmd.pseudo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) {
+
+        if (cmd.printbuf)
+            printloadbuf(c.buf, tableMeta, c.rowCnt);
+        //if ((!cmd.pseudo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) { // for ODBC driver bug M-8069
+        if ((!cmd.pseudo) && (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt)))) {
             debug_log("retcode:", retcode, "\n");
             cn.diagError("SQLExecute");
         }
@@ -314,6 +432,120 @@ void Loader::loadToDB(size_t id) {
 
     for(auto& th : monitors) {
         th.join();
+    }
+}
+
+void Loader::loadToDisk(size_t id) {
+    size_t rowsLoaded = 0;
+
+    std::string writePath = cmd.tableName.substr(5) + std::to_string(cmd.sid + lid++);
+    std::ofstream ofile{ writePath };
+
+    std::unique_lock<std::mutex> lckTableMeta{ mutexTableMeta };
+    if (!isTableMetaInitialized) {
+        std::ifstream ifs{ cmd.mapFile };
+        for (std::string temp; std::getline(ifs, temp);) {
+            ColumnDesc desc;
+            std::istringstream iss{ temp };
+            std::string temp1;
+            std::getline(iss, desc.Name, ':');
+            std::getline(iss, temp1, ':');
+            if (temp1 == "CRAND") {
+                desc.Type = SQL_CHAR;
+                std::getline(iss, temp1, ':');
+                desc.Size = std::stoul(temp1);
+            }
+            else if (temp1 == "DRAND") {
+                desc.Type = SQL_DATE;
+                desc.Size = sizeof(SQL_DATE_STRUCT);
+            }
+            else if (temp1 == "SEQ" ||
+                temp1 == "IRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_INTEGER;
+            }
+            else if (temp1 == "DBLRAND") {
+                desc.Size = 12;
+                desc.Type = SQL_DOUBLE;
+            }
+            else {
+                gLog.log<Log::LERROR>("unsupported type ", temp1, "\n");
+                return;
+            }
+            gLog.log<Log::DEBUG>("***SIZE:", desc.Size, "\n");
+            tableMeta.coldesc.push_back(desc);
+        }
+
+        // compute rowWidth
+        for (SQLSMALLINT i = 0; i < tableMeta.coldesc.size(); ++i) {
+            rowWidth += tableMeta.coldesc[i].Size;
+            debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
+            rowWidth += sizeof(SQLLEN);
+        }
+        gLog.log<Log::DEBUG>("rowwidth:", rowWidth, "\n");
+
+        // distribute data container
+        std::unique_lock<std::mutex> lckEmptyQ{ mEmptyQueue };
+        for (size_t i = 0; i < maxSize; ++i) {
+            emptyQueue.push(DataContainer{ rowWidth * cmd.rows, cmd.rows });
+        }
+        condEmptyQueueNotEmpty.notify_all();
+        lckEmptyQ.unlock();
+
+        isTableMetaInitialized = true;
+        tLoadStart = std::chrono::high_resolution_clock::now();
+    }
+
+    lckTableMeta.unlock();
+
+    while (true) {
+        std::unique_lock<std::mutex> lckFullQ{ mFullQueue };
+
+        condFullQueueNotEmpty.wait(lckFullQ, [this] {return (!fullQueue.empty()) || (producerCnt == 0); });
+
+        debug_log("loader>>size of full queue:", fullQueue.size(), "\n");
+        if (fullQueue.empty() && producerCnt == 0) {
+            condFullQueueNotEmpty.notify_all();
+            break;
+        }
+
+        DataContainer c = std::move(fullQueue.front());
+        fullQueue.pop();
+        condFullQueueNotFull.notify_one();
+        lckFullQ.unlock();
+
+        debug_log("=====get loading data rows:", c.rowCnt, "\n");
+
+        debug_log("doing data loading...\n");
+
+        ofile.write(c.buf, rowWidth * c.rowCnt);
+
+        rowsLoaded += c.rowCnt;
+        gLog.log<Log::INFO>(c.rowCnt, " rows loaded\n");
+
+        std::unique_lock<std::mutex> lckEmptyQ{ mEmptyQueue };
+        condEmptyQueueNotFull.wait(lckEmptyQ, [this] {return (emptyQueue.size() < maxSize) || (producerCnt == 0); });
+
+        if (producerCnt == 0 && fullQueue.size() == 0) {
+            condEmptyQueueNotFull.notify_all();
+            break;
+        }
+
+        debug_log("loader>>size of empty queue:", emptyQueue.size(), "\n");
+        emptyQueue.push(std::move(c));
+        condEmptyQueueNotEmpty.notify_one();
+    }
+
+    ofile.flush();
+
+    totalLoadedRows += rowsLoaded;
+    gLog.log<Log::INFO>("loading thread exit\n");
+    if (--consumerCnt == 0) {
+        tLoadEnd = std::chrono::high_resolution_clock::now();
+        auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
+        gLog.log<Log::INFO>("loading time:", tElapsed,
+            " ms\nloading speed:", double(totalLoadedRows) / tElapsed * 1000,
+            " rows/s, ", double(totalLoadedRows*rowWidth) / tElapsed / 1.024 / 1024, " MB/s\n");
     }
 }
 
@@ -527,11 +759,26 @@ void Loader::loadToHBase() {
                 " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
 }
 
+#endif
+
 void Loader::loadToHDFS() {
     gLog.log<Log::INFO>("load data to hdfs\n");
+    //RunTimeLib ddl("hdfs");
 
+    //hdfsFS (*hdfsConnect)(const char*, tPort) = (hdfsFS(*)(const char*, tPort))ddl.getFunction("hdfsConnect");
+    //hdfsFile (*hdfsOpenFile)(hdfsFS, const char*, int, int, short, tSize)
+    //    = (hdfsFile (*)(hdfsFS, const char*, int, int, short, tSize))ddl.getFunction("hdfsOpenFile");
+    //tSize (*hdfsWrite)(hdfsFS, hdfsFile, const void*, tSize)
+    //    = (tSize(*)(hdfsFS, hdfsFile, const void*, tSize))ddl.getFunction("hdfsWrite");
+    //int (*hdfsFlush)(hdfsFS, hdfsFile) = (int(*)(hdfsFS, hdfsFile))ddl.getFunction("hdfsFlush");
+    //int (*hdfsCloseFile)(hdfsFS, hdfsFile) = (int (*)(hdfsFS, hdfsFile))ddl.getFunction("hdfsCloseFile");
+#if 0
     size_t rowsLoaded = 0;
     hdfsFS fs = hdfsConnect("default", 0);
+    if (!fs) {
+        gLog.log<Log::LERROR>("connect to hdfs server failed\n");
+    }
+
     std::string writePath = cmd.tableName.substr(5) + std::to_string(cmd.sid + lid++);
     hdfsFile writeFile = hdfsOpenFile(fs, writePath.c_str(), O_WRONLY | O_CREAT, 0, 0, 0);
     if (!writeFile) {
@@ -580,7 +827,7 @@ void Loader::loadToHDFS() {
             debug_log("col", i, ':', tableMeta.coldesc[i].Size, "\n");
             rowWidth += sizeof(SQLLEN);
         }
-	gLog.log<Log::DEBUG>("rowwidth:", rowWidth, "\n");
+	    gLog.log<Log::DEBUG>("rowwidth:", rowWidth, "\n");
 
         // distribute data container
         std::unique_lock<std::mutex> lckEmptyQ{mEmptyQueue};
@@ -648,13 +895,13 @@ void Loader::loadToHDFS() {
         auto tElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(tLoadEnd - tLoadStart).count();
         gLog.log<Log::INFO>("loading time:", tElapsed,
                 " ms\nloading speed:", double(totalLoadedRows)/tElapsed * 1000,
-                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); }
-}
+                " rows/s, ", double(totalLoadedRows*rowWidth)/tElapsed/1.024/1024, " MB/s\n"); 
 #endif
+}
 
 void Loader::loadData(size_t id) {
     if (cmd.tableName.substr(0, 5) == "hdfs.") {
-#if 0
+#if 1
         loadToHDFS();
 #else
         gLog.log<Log::LERROR>("windows don't support this feature\n");
@@ -666,6 +913,9 @@ void Loader::loadData(size_t id) {
 #else
         gLog.log<Log::LERROR>("windows don't support this feature\n");
 #endif // ! _WINDOWS
+    }
+    else if (cmd.tableName.substr(0, 5) == "disk.") {
+        loadToDisk(id);
     }
     else {
         loadToDB(id);
@@ -730,8 +980,6 @@ void Loader::initTableMeta(Connection& cnxn) {
                                                &cd.Decimal, &cd.Nullable))) {
             cnxn.diagError("SQLDescibeCol");
         }
-
-        if (cd.Type == SQL_NUMERIC) cd.Type = SQL_DOUBLE;
 
         if (!SQL_SUCCEEDED(SQLColAttribute(hstmt, (SQLUBIGINT)(i + 1), SQL_DESC_OCTET_LENGTH, NULL, 0, NULL, &cd.OtectLen))) {
             cnxn.diagError("SQLColAttribute");

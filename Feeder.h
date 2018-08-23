@@ -239,6 +239,15 @@ private:
     Random rnd;
 };
 
+class NumericSeqFiller : public Filler {
+public:
+    NumericSeqFiller(const std::string& spec);
+    bool fill(void *buff) override;
+
+private:
+    long seqnum;
+};
+
 class NumericRandFiller : public Filler {
 public:
     NumericRandFiller(const std::string& spec);

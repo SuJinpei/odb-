@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <sstream>
 #include <cstdio>
 #include <iomanip>
@@ -192,6 +192,18 @@ bool DateRandFiller::fill(void *buf) {
     return true;
 }
 
+NumericSeqFiller::NumericSeqFiller(const std::string& spec)
+    : Filler(spec) {
+    gLog.log<Log::DEBUG>("NumericSeqFiller spec:", spec, "\n");
+    seqnum = std::stol(spec);
+}
+
+bool NumericSeqFiller::fill(void *buf) {
+    sprintf((char*)buf, "%ld", seqnum++);
+    debug_log("numeric seq string:", (char *)buf, "\n");
+    return true;
+}
+
 NumericRandFiller::NumericRandFiller(const std::string& spec)
     : Filler(spec) {
     std::istringstream iss{ spec };
@@ -208,12 +220,12 @@ NumericRandFiller::NumericRandFiller(const std::string& spec)
     for (int i = 0; i < scal; ++i) {
         scaleDiv *= 10;
     }
-    sprintf(fmtstr, "%%%d.%df", prec, scal);
+    sprintf(fmtstr, "%%.%df", scal);
 }
 
 bool NumericRandFiller::fill(void *buf) {
     sprintf((char*)buf, fmtstr, (double)(rnd.rand_long(0, maxInt))/scaleDiv);
-    debug_log("numeric string:", buf, "\n");
+    debug_log("numeric string:", (char *)buf, "\n");
     return true;
 }
 
@@ -270,6 +282,10 @@ void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &
         else if (rule == "IRAND") {
             for (size_t i = 0; i < num; ++i)
                 fillersVec[i].push_back(std::unique_ptr<Filler>{new IrandFiller{ leftspec }});
+        }
+        else if (rule == "NSEQ") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new NumericSeqFiller{ leftspec }});
         }
         else if (rule == "NRAND") {
             for (size_t i = 0; i < num; ++i)

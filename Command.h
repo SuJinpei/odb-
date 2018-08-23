@@ -1,4 +1,5 @@
 #pragma once
+#include "TCPCommon.h"
 #include "Common.h"
 #include "error.h"
 #include <string>
@@ -18,11 +19,19 @@ struct Task {
 };
 
 struct Command {
+    enum RUN_MODE {SERVER, CLIENT, SINGLE};
+
     // DataSources
     std::vector<DBConfig> dbConfigs;
 
     // Tasks
     std::vector<Task> tasks;
+
+    // distributed options
+    std::string IPAddr;
+    unsigned short portNo;
+    size_t numRequest = 1;
+    RUN_MODE runMode = SINGLE;
     
     bool isVerbose() {
         return true;
@@ -32,11 +41,12 @@ private:
 };
 
 struct LoaderCmd {
-    LoaderCmd(const DBConfig& dbc, const std::string& cmdStr) : dbcfg(dbc) { parse(cmdStr); }
+    LoaderCmd(const DBConfig& dbc, const std::string& cmdStr, const Command& command) : dbcfg(dbc), cmd(command) { parse(cmdStr); }
     void parse(const std::string& cmdStr);
     void print();
 
     bool pseudo = false;
+    bool printbuf = false;
     char fieldSep = ',';
     char recordSep = '\n';
     char skipToken = '\\';
@@ -80,4 +90,6 @@ struct LoaderCmd {
     std::string loadMethod{ "INSERT" };
     std::string xmltag; // [+]element
     std::string monitorFile; // monitor file
+
+    const Command& cmd;
 };

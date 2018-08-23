@@ -3,6 +3,6 @@
 
 class Odb {
 public:
-    static void runCmd(const Command& cmd);
-
+    ~Odb();
+    void runCmd(const Command& cmd);
 };

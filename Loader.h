@@ -4,7 +4,7 @@
 #include "DataContainer.h"
 #include "Feeder.h"
 
-#if 0
+#if 1
 #include "hdfs.h"
 #endif
 
@@ -17,6 +17,8 @@
 #include <atomic>
 #include <sstream>
 #include <limits>
+
+void printloadbuf(void *buf, TableDesc& meta, size_t rows);
 
 struct Connection {
     Connection(const DBConfig& dc) {
@@ -66,8 +68,10 @@ public:
 private:
     void loadToDB(size_t id);
 
-#ifndef _WINDOWS
+    void loadToDisk(size_t id);
+
     void loadToHDFS();
+#ifndef _WINDOWS
     void loadToHBase();
 #endif
 

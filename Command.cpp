@@ -54,6 +54,9 @@ void LoaderCmd::parse(const std::string& cmdStr) {
         else if (key == "pseudo") {
             pseudo = true;
         }
+        else if (key == "printbuf") {
+            printbuf = true;
+        }
         else {
             error("unsupported load option:", key);
         }

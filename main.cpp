@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
         debug_log("UID:", cmd.dbConfigs[0].UID, "\n");
         debug_log("PWD:", cmd.dbConfigs[0].PWD, "\n");
 
-        Odb::runCmd(cmd);
+        Odb().runCmd(cmd);
     }
     catch(std::exception& e) {
         std::cerr << e.what() << std::endl;

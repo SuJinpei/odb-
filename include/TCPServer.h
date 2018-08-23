@@ -6,21 +6,22 @@
 
 class BaseRequestHandler {
 public:
-    virtual void handle() = 0;
+    virtual void handle() {};
     TCPConnection conn;
 };
 
 class BaseRequestHandlerFactory {
 public:
-    virtual BaseRequestHandler* createHandler() = 0;
+    virtual BaseRequestHandler* createHandler();
 };
 
 class TCPServer {
 public:
-    TCPServer(std::string ipAddr, unsigned short port, BaseRequestHandlerFactory *pf);
+    TCPServer(std::string ipAddr, unsigned short port, BaseRequestHandlerFactory *pf = new BaseRequestHandlerFactory());
     ~TCPServer();
 
-    void serve_forever();
+    TCPConnection accept();
+    void serve_num_request(size_t n);
 
 private:
     int sockfd;

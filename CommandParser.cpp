@@ -41,6 +41,23 @@ Command CommandParser::parse() {
         else if (opt == "-trand") {
             parseTask(Task::TEST_RAND_SPEED);
         }
+        else if (opt == "-s" || opt == "-c") {
+            std::string IPStr = valueNext();
+            cmd.runMode = (opt == "-s") ? Command::SERVER : Command::CLIENT;
+
+            // get IP addr
+            std::istringstream iss{ IPStr };
+            std::getline(iss, cmd.IPAddr, ':');
+
+            // get port no
+            std::string temp;
+            std::getline(iss, temp, ':');
+            cmd.portNo = std::stoi(temp);
+
+            // get num request
+            if (std::getline(iss, temp))
+                cmd.numRequest = std::stoul(temp);
+        }
         else {
             error("unknown option:", opt);
         }

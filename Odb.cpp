@@ -3,6 +3,9 @@
 #include "Loader.h"
 #include "RandSpeed.h"
 
+Odb::~Odb() {
+}
+
 void Odb::runCmd(const Command& cmd) {
     for (auto t : cmd.tasks) {
         switch(t.taskID) {
@@ -19,7 +22,7 @@ void Odb::runCmd(const Command& cmd) {
         {
             debug_log("doing job load\n");
             debug_log(t.taskOptionStr, "\n");
-            Loader l{ LoaderCmd{cmd.dbConfigs[0], t.taskOptionStr} };
+            Loader l{ LoaderCmd{cmd.dbConfigs[0], t.taskOptionStr, cmd} };
             l.run();
         }
             break;
