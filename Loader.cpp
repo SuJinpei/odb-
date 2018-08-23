@@ -15,34 +15,39 @@
 #include "hbase/hbase.h"
 #endif
 
-void printloadbuf(void *buf, TableDesc& meta, size_t rows) {
+std::string row_data_to_string(void *buf, TableDesc& meta) {
     size_t start = 0;
-    for (size_t r = 0; r < rows; ++r) {
-        for (SQLSMALLINT c = 0; c < meta.ColumnNum; ++c) {
-            //gLog.log<Log::INFO>("sqltype:", meta.coldesc[c].Type, ":");
-            switch (meta.coldesc[c].Type)
-            {
-            case SQL_INTEGER:
-                gLog.log<Log::INFO>("ld:", *((long*)((char*)buf + start)));
-                break;
-            case SQL_DOUBLE:
-                gLog.log<Log::INFO>("f:", *((double*)((char*)buf + start)));
-                break;
-            case SQL_DATE:
-            case SQL_TYPE_DATE:
-                gLog.log<Log::INFO>("date:");
-                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).year, "-");
-                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).month, "-");
-                gLog.log<Log::INFO>((*((DATE_STRUCT*)((char*)buf + start))).day);
-                break;
-            default:
-                gLog.log<Log::INFO>("s:", (char*)buf + start);
-                break;
-            }
-            gLog.log<Log::INFO>("|", *((SQLLEN*)((char*)buf + start + meta.coldesc[c].OtectLen)), ",\t");
-            start += meta.coldesc[c].OtectLen + sizeof(SQLLEN);
+    std::ostringstream oss;
+    for (SQLSMALLINT c = 0; c < meta.ColumnNum; ++c) {
+        switch (meta.coldesc[c].Type)
+        {
+        case SQL_INTEGER:
+            oss << "ld:" << *((long*)((char*)buf + start));
+            break;
+        case SQL_DOUBLE:
+            oss << "f:" << *((double*)((char*)buf + start));
+            break;
+        case SQL_DATE:
+        case SQL_TYPE_DATE:
+            oss << "date:";
+            oss << (*((DATE_STRUCT*)((char*)buf + start))).year << "-";
+            oss << (*((DATE_STRUCT*)((char*)buf + start))).month << "-";
+            oss << (*((DATE_STRUCT*)((char*)buf + start))).day;
+            break;
+        default:
+            oss << "s:", (char*)buf + start;
+            break;
         }
-        gLog.log<Log::INFO>("\n");
+        oss << "|" << *((SQLLEN*)((char*)buf + start + meta.coldesc[c].OtectLen)) << ",\t";
+        start += meta.coldesc[c].OtectLen + sizeof(SQLLEN);
+    }
+
+    return oss.str();
+}
+
+void log_all_loadbuf(void *buf, TableDesc& meta, size_t rows) {
+    for (size_t r = 0; r < rows; ++r) {
+        gLog.log<Log::INFO>(row_data_to_string((char*)buf + r * meta.recordSize, meta), "\n");
     }
 }
 
@@ -397,10 +402,15 @@ void Loader::loadToDB(size_t id) {
         debug_log("doing data loading...\n");
 
         if (cmd.printbuf)
-            printloadbuf(c.buf, tableMeta, c.rowCnt);
+            log_all_loadbuf(c.buf, tableMeta, c.rowCnt);
         //if ((!cmd.pseudo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) { // for ODBC driver bug M-8069
         if ((!cmd.pseudo) && (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt)))) {
             debug_log("retcode:", retcode, "\n");
+            for (int i = 0; i < c.rowCnt; ++i) {
+                if (!SQL_SUCCEEDED(pStatus.get()[i])) {
+                    gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * tableMeta.recordSize, tableMeta));
+                }
+            }
             cn.diagError("SQLExecute");
         }
 
