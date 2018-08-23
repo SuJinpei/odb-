@@ -408,7 +408,7 @@ void Loader::loadToDB(size_t id) {
             debug_log("retcode:", retcode, "\n");
             for (int i = 0; i < c.rowCnt; ++i) {
                 if (!SQL_SUCCEEDED(pStatus.get()[i])) {
-                    gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * tableMeta.recordSize, tableMeta));
+                    gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * tableMeta.recordSize, tableMeta), "\n");
                 }
             }
             cn.diagError("SQLExecute");
