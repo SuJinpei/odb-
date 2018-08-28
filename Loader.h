@@ -18,7 +18,7 @@
 #include <sstream>
 #include <limits>
 
-void printloadbuf(void *buf, TableDesc& meta, size_t rows);
+void log_all_loadbuf(void *buf, TableDesc& meta, size_t rows);
 
 struct Connection {
     Connection(const DBConfig& dc) {

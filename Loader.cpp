@@ -404,10 +404,10 @@ void Loader::loadToDB(size_t id) {
         if (cmd.printbuf)
             log_all_loadbuf(c.buf, tableMeta, c.rowCnt);
         //if ((!cmd.pseudo) && (SQL_SUCCESS != (retcode = SQLExecute(cn.hstmt)))) { // for ODBC driver bug M-8069
-        if ((!cmd.pseudo) && (!SQL_SUCCEEDED(retcode = SQLExecute(cn.hstmt)))) {
+        if ((!cmd.pseudo) && (SQL_SUCCESS == (retcode = SQLExecute(cn.hstmt)))) {
             debug_log("retcode:", retcode, "\n");
             for (int i = 0; i < c.rowCnt; ++i) {
-                if (!SQL_SUCCEEDED(pStatus.get()[i])) {
+                if (SQL_SUCCESS != pStatus.get()[i]) {
                     gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * tableMeta.recordSize, tableMeta), "\n");
                 }
             }
