@@ -47,7 +47,7 @@ std::string row_data_to_string(void *buf, TableDesc& meta) {
 
 void log_all_loadbuf(void *buf, TableDesc& meta, size_t rows) {
     for (size_t r = 0; r < rows; ++r) {
-        gLog.log<Log::INFO>(row_data_to_string((char*)buf + r * meta.recordSize, meta), "\n");
+        gLog.log<Log::INFO>(row_data_to_string((char*)buf + r * (meta.recordSize + meta.ColumnNum * sizeof(SQLLEN)), meta), "\n");
     }
 }
 
@@ -1004,7 +1004,7 @@ void Loader::initTableMeta(Connection& cnxn) {
         }
 
         tableMeta.coldesc.push_back(cd);
-        tableMeta.recordSize += cd.Size;
+        tableMeta.recordSize += cd.OtectLen;
     }
 }
 
