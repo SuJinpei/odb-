@@ -18,6 +18,7 @@
 #include <sstream>
 #include <limits>
 
+SQLSMALLINT getCType(SQLSMALLINT sqlType);
 void log_all_loadbuf(void *buf, TableDesc& meta, size_t rows);
 
 struct Connection {

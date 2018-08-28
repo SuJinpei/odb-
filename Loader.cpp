@@ -19,16 +19,16 @@ std::string row_data_to_string(void *buf, TableDesc& meta) {
     size_t start = 0;
     std::ostringstream oss;
     for (SQLSMALLINT c = 0; c < meta.ColumnNum; ++c) {
-        switch (meta.coldesc[c].Type)
+        switch (getCType(meta.coldesc[c].Type))
         {
-        case SQL_INTEGER:
+        case SQL_C_LONG:
             oss << "ld:" << *((long*)((char*)buf + start));
             break;
-        case SQL_DOUBLE:
+        case SQL_C_DOUBLE:
             oss << "f:" << *((double*)((char*)buf + start));
             break;
-        case SQL_DATE:
-        case SQL_TYPE_DATE:
+        case SQL_C_TYPE_DATE:
+        case SQL_C_DATE:
             oss << "date:";
             oss << (*((DATE_STRUCT*)((char*)buf + start))).year << "-";
             oss << (*((DATE_STRUCT*)((char*)buf + start))).month << "-";
@@ -62,6 +62,14 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
     case SQL_CHAR:
     case SQL_VARCHAR:
         return SQL_C_CHAR;
+    case SQL_NUMERIC:
+        return SQL_C_DOUBLE;
+    case SQL_INTEGER:
+        return SQL_C_LONG;
+    case SQL_DATE:
+        return SQL_C_DATE;
+    case SQL_TYPE_DATE:
+        return SQL_C_TYPE_DATE;
     default:
         return SQL_C_DEFAULT;
     }
