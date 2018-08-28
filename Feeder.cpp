@@ -242,7 +242,7 @@ DoubleRandFiller::DoubleRandFiller(const std::string& spec)
 
 bool DoubleRandFiller::fill(void * buf) {
     *((double*)buf) = rnd.rand_double(min, max);
-    gLog.log<Log::DEBUG>("DBLRAND:", *(double*)buf);
+    gLog.log<Log::DEBUG>("DBLRAND:", *(double*)buf, "\n");
     return true;
 }
 

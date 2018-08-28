@@ -14,37 +14,19 @@ void Log::setLevel(Log::LogLevel lv) {
 }
 
 Random::Random()
-#ifdef _WINDOWS
     : rd{}, gen { rd() }
-#endif // _WINDOWS
 {
-#ifndef _WINDOWS
-    *((time_t*)seed16v) = time(0);
-    seed48_r(seed16v, &randbuf);
-#endif // !_WINDOWS
     rand_char_seqs = rand_str(1024*1024);
 }
 
 long Random::rand_long(long lo, long hi) {
-#ifdef _WINDOWS
     std::uniform_int_distribution<long> ldist{ lo, hi };
     return ldist(gen);
-#else
-    long r;
-    lrand48_r(&randbuf, &r);
-    return r % (hi - lo) + lo;
-#endif // _WINDOWS
 }
 
 double Random::rand_double(double lo, double hi) {
-#ifdef _WINDOWS
     std::uniform_real_distribution<double> dist{ lo, hi };
     return dist(gen);
-#else
-    double d;
-    drand48_r(&randbuf, &d);
-    return d;
-#endif
 }
 
 std::string Random::rand_str(size_t len) {

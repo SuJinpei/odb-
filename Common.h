@@ -108,11 +108,6 @@ public:
 private:
     std::string rand_char_seqs;
     static const std::string chars;
-#ifdef _WINDOWS
     std::random_device rd;
     std::mt19937_64 gen;
-#else
-    drand48_data randbuf;
-#endif
-    unsigned short int seed16v[3];
 };
