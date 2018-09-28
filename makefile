@@ -3,7 +3,7 @@ INCLUDE=-I. -I./include
 LIBPATH=-L./lib
 ODIR=obj
 CC=g++
-LINK_FLAGS=-lodbc -lpthread -ldl -ltcp
+LINK_FLAGS=-ltrafodbc64 -lpthread -ldl
 
 ifeq ($(cut), 1)
 INCLUDE += -I./include
@@ -39,10 +39,10 @@ OBJ=CommandParser.o \
 	main.o
 
 $(PROGRAM):$(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LINK_FLAGS) $(INCLUDE) $(LIBPATH)
+	$(CC) -std=c++11 $(CFLAGS) -o $@ $^ $(LINK_FLAGS) $(INCLUDE) $(LIBPATH)
 
 .cpp.o:
-	$(CC) $(CFLAGS) -c -o $@ $< $(INCLUDE)
+	$(CC) -std=c++11 $(CFLAGS) -c -o $@ $< $(INCLUDE)
 
 clean:
 	rm -rf *.o

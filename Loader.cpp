@@ -9,8 +9,8 @@
 #include "error.h"
 #include "Loader.h"
 #include "RunTimeLib.h"
-#include "TCPServer.h"
-#include "TCPClient.h"
+//#include "TCPServer.h"
+//#include "TCPClient.h"
 #if 0
 #include "hbase/hbase.h"
 #endif
@@ -142,9 +142,9 @@ void Loader::loadToDB(size_t id) {
     std::vector<std::thread> monitors;
 
     // distribute objects
-    std::vector<TCPConnection> clientsConnection;
-    std::unique_ptr<TCPServer> pServer;
-    std::unique_ptr<TCPClient> pClient;
+    // std::vector<TCPConnection> clientsConnection;
+    // std::unique_ptr<TCPServer> pServer;
+    // std::unique_ptr<TCPClient> pClient;
 
     statsLoadedRows[id] = 0;
     // intialize table meta
@@ -182,19 +182,19 @@ void Loader::loadToDB(size_t id) {
 
         // if distribution mode first thread create server connection
         if (cmd.cmd.runMode == Command::SERVER) {
-            pServer.reset(new TCPServer(cmd.cmd.IPAddr, cmd.cmd.portNo));
-            for (size_t i = 0; i < cmd.cmd.numRequest; ++i) {
-                clientsConnection.push_back(pServer->accept());
-            }
-            for (auto& conn : clientsConnection) {
-                conn.send("go", 3);
-            }
+            // pServer.reset(new TCPServer(cmd.cmd.IPAddr, cmd.cmd.portNo));
+            // for (size_t i = 0; i < cmd.cmd.numRequest; ++i) {
+            //     clientsConnection.push_back(pServer->accept());
+            // }
+            // for (auto& conn : clientsConnection) {
+            //     conn.send("go", 3);
+            // }
         }
         else if (cmd.cmd.runMode == Command::CLIENT) {
-            pClient.reset(new TCPClient(cmd.cmd.IPAddr, cmd.cmd.portNo));
-            char message[8];
-            pClient->recv(message, sizeof(message));
-            gLog.log<Log::INFO>("receive server command:", message, "\n");
+            // pClient.reset(new TCPClient(cmd.cmd.IPAddr, cmd.cmd.portNo));
+            // char message[8];
+            // pClient->recv(message, sizeof(message));
+            // gLog.log<Log::INFO>("receive server command:", message, "\n");
         }
 
         tLoadStart = std::chrono::high_resolution_clock::now();
@@ -222,64 +222,64 @@ void Loader::loadToDB(size_t id) {
 
             // if is server start server
             if (cmd.cmd.runMode == Command::SERVER) {
-                std::vector<size_t> instanceLoadedRows(cmd.cmd.numRequest);
-                while (true) {
-                    std::unique_lock<std::mutex> lck{ mutexGo };
-                    condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
-                    if (!go) break;
+                // std::vector<size_t> instanceLoadedRows(cmd.cmd.numRequest);
+                // while (true) {
+                //     std::unique_lock<std::mutex> lck{ mutexGo };
+                //     condGo.wait_for(lck, std::chrono::milliseconds(cmd.statInterval));
+                //     if (!go) break;
 
-                    for (auto& conn : clientsConnection) {
-                        std::string message = "send me stats";
-                        conn.send(message.c_str(), message.length());
-                    }
+                //     for (auto& conn : clientsConnection) {
+                //         std::string message = "send me stats";
+                //         conn.send(message.c_str(), message.length());
+                //     }
 
-                    for (size_t i = 0; i < clientsConnection.size(); ++i) {
-                        size_t loadedNum;
-                        clientsConnection[i].recv(&loadedNum, sizeof(loadedNum));
-                        instanceLoadedRows[i] = loadedNum;
-                    }
+                //     for (size_t i = 0; i < clientsConnection.size(); ++i) {
+                //         size_t loadedNum;
+                //         clientsConnection[i].recv(&loadedNum, sizeof(loadedNum));
+                //         instanceLoadedRows[i] = loadedNum;
+                //     }
 
-                    time(&rawtime);
-                    timeinfo = localtime(&rawtime);
-                    strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S", timeinfo);
+                //     time(&rawtime);
+                //     timeinfo = localtime(&rawtime);
+                //     strftime(buffer, sizeof(buffer), "%Y-%m-%d %I:%M:%S", timeinfo);
 
-                    for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
-                        newCnt += this->statsLoadedRows[i];
-                    }
+                //     for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                //         newCnt += this->statsLoadedRows[i];
+                //     }
 
-                    size_t selfLoaded = newCnt - lastCnt;
-                    size_t allTotalLoaded = selfLoaded;
+                //     size_t selfLoaded = newCnt - lastCnt;
+                //     size_t allTotalLoaded = selfLoaded;
 
-                    for (auto l : instanceLoadedRows) {
-                        allTotalLoaded += l;
-                    }
+                //     for (auto l : instanceLoadedRows) {
+                //         allTotalLoaded += l;
+                //     }
 
-                    osLog.get() << buffer << " total real time speed:" << (double)(allTotalLoaded) / cmd.statInterval * 1000 << " rows/s, "
-                                << (double)allTotalLoaded * rowWidth / (cmd.statInterval * 1.024 * 1024) << " MB/s\n";
-                    osLog.get().flush();
+                //     osLog.get() << buffer << " total real time speed:" << (double)(allTotalLoaded) / cmd.statInterval * 1000 << " rows/s, "
+                //                 << (double)allTotalLoaded * rowWidth / (cmd.statInterval * 1.024 * 1024) << " MB/s\n";
+                //     osLog.get().flush();
 
-                    lastCnt = newCnt;
-                    newCnt = 0;
-                }
+                //     lastCnt = newCnt;
+                //     newCnt = 0;
+                // }
             }
             else if (cmd.cmd.runMode == Command::CLIENT) {
                 // listen server command
-                while (go) {
-                    char buf[128];
-                    pClient->recv(buf, sizeof(buf));
+                // while (go) {
+                //     char buf[128];
+                //     // pClient->recv(buf, sizeof(buf));
 
-                    for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
-                        newCnt += this->statsLoadedRows[i];
-                    }
+                //     for (size_t i = 0; i < this->statsLoadedRows.size(); ++i) {
+                //         newCnt += this->statsLoadedRows[i];
+                //     }
 
-                    size_t intervalLoaded = newCnt - lastCnt;
-                    pClient->send(&intervalLoaded, sizeof(intervalLoaded));
-                    osLog.get() << buffer << " real time speed:" << (double)intervalLoaded / cmd.statInterval * 1000 << " rows/s\n";
-                    osLog.get().flush();
+                //     size_t intervalLoaded = newCnt - lastCnt;
+                //     pClient->send(&intervalLoaded, sizeof(intervalLoaded));
+                //     osLog.get() << buffer << " real time speed:" << (double)intervalLoaded / cmd.statInterval * 1000 << " rows/s\n";
+                //     osLog.get().flush();
 
-                    lastCnt = newCnt;
-                    newCnt = 0;
-                }
+                //     lastCnt = newCnt;
+                //     newCnt = 0;
+                // }
             }
             else {
                 while (true) {

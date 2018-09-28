@@ -48,8 +48,10 @@ void LoaderCmd::parse(const std::string& cmdStr) {
                 loadMethod = "UPSERT";
             else if (val == "UL")
                 loadMethod = "UPSERT USING LOAD";
+            else if (val == "UN")
+                loadMethod = "upsert with no conflict check";
             else
-                error("unknown loadcmd:", val);
+                loadMethod = val;
         }
         else if (key == "pseudo") {
             pseudo = true;

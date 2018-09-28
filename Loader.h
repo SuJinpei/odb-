@@ -4,10 +4,6 @@
 #include "DataContainer.h"
 #include "Feeder.h"
 
-#if 1
-#include "hdfs.h"
-#endif
-
 #include <sqlext.h>
 #include <queue>
 #include <mutex>
