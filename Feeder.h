@@ -225,8 +225,13 @@ public:
 
 class TimeStampRandFiller : public Filler {
 public:
-    using Filler::Filler;
+    TimeStampRandFiller(const std::string& spec);
     bool fill(void *buff) override;
+
+private:
+    Random rnd;
+    int maxYear;
+    int minYear;
 };
 
 class CharsRandFiller : public Filler {

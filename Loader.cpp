@@ -34,6 +34,16 @@ std::string row_data_to_string(void *buf, TableDesc& meta) {
             oss << (*((DATE_STRUCT*)((char*)buf + start))).month << "-";
             oss << (*((DATE_STRUCT*)((char*)buf + start))).day;
             break;
+        case SQL_C_TYPE_TIMESTAMP:
+            oss << "ts:";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).year << "-";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).month << "-";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).day;
+            oss << " " << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).hour << ":";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).minute << ":";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).second << ".";
+            oss << (*((TIMESTAMP_STRUCT*)((char*)buf + start))).fraction;
+            break;
         default:
             oss << "s:", (char*)buf + start;
             break;
@@ -63,6 +73,7 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
     case SQL_VARCHAR:
         return SQL_C_CHAR;
     case SQL_NUMERIC:
+    case SQL_DECIMAL:
         return SQL_C_DOUBLE;
     case SQL_INTEGER:
         return SQL_C_LONG;
@@ -70,6 +81,10 @@ SQLSMALLINT getCType(SQLSMALLINT sqlType) {
         return SQL_C_DATE;
     case SQL_TYPE_DATE:
         return SQL_C_TYPE_DATE;
+    case SQL_TIMESTAMP:
+        return SQL_C_TIMESTAMP;
+    case SQL_TYPE_TIMESTAMP:
+        return SQL_C_TYPE_TIMESTAMP;
     default:
         return SQL_C_DEFAULT;
     }
@@ -159,6 +174,7 @@ void Loader::loadToDB(size_t id) {
         for (SQLSMALLINT i = 0; i < tableMeta.ColumnNum; ++i) {
             rowWidth += tableMeta.coldesc[i].OtectLen;
             debug_log("col", i, ':', tableMeta.coldesc[i].OtectLen, "\n");
+            gLog.log<Log::DEBUG>("col ", i, " type:", tableMeta.coldesc[i].Type, " len:", tableMeta.coldesc[i].OtectLen, "\n");
             rowWidth += sizeof(SQLLEN);
         }
 
@@ -416,7 +432,7 @@ void Loader::loadToDB(size_t id) {
             debug_log("retcode:", retcode, "\n");
             for (int i = 0; i < c.rowCnt; ++i) {
                 if (SQL_SUCCESS != pStatus.get()[i]) {
-                    gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * tableMeta.recordSize, tableMeta), "\n");
+                    gLog.log<Log::LERROR>("row ", i, ">>>", row_data_to_string((char*)c.buf + i * (tableMeta.recordSize + tableMeta.ColumnNum * sizeof(SQLLEN)), tableMeta), "\n");
                 }
             }
             cn.diagError("SQLExecute");
@@ -1001,6 +1017,15 @@ void Loader::initTableMeta(Connection& cnxn) {
 
         if (!SQL_SUCCEEDED(SQLColAttribute(hstmt, (SQLUBIGINT)(i + 1), SQL_DESC_OCTET_LENGTH, NULL, 0, NULL, &cd.OtectLen))) {
             cnxn.diagError("SQLColAttribute");
+        }
+
+        if (cd.Type == SQL_DECIMAL) {
+            cd.Type = SQL_INTEGER;
+            cd.OtectLen = 12;
+        }
+
+        if (cd.Type == SQL_TYPE_TIMESTAMP) {
+            cd.OtectLen = sizeof(TIMESTAMP_STRUCT);
         }
 
         tableMeta.coldesc.push_back(cd);

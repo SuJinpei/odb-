@@ -192,6 +192,28 @@ bool DateRandFiller::fill(void *buf) {
     return true;
 }
 
+TimeStampRandFiller::TimeStampRandFiller(const std::string& spec)
+    : Filler(spec) { 
+    gLog.log<Log::DEBUG>("TimeStampRand:", spec, "\n");
+    std::istringstream iss{spec};
+    std::string maxY, minY;
+    std::getline(iss, minY, ':');
+    std::getline(iss, maxY, ':');
+    maxYear = std::stol(maxY);
+    minYear = std::stol(minY);
+}
+
+bool TimeStampRandFiller::fill(void *buf) {
+    ((TIMESTAMP_STRUCT*)buf)->year = rnd.rand_long(minYear, maxYear);
+    ((TIMESTAMP_STRUCT*)buf)->month = rnd.rand_long(1, 12);
+    ((TIMESTAMP_STRUCT*)buf)->day = rnd.rand_long(1, 28);
+    ((TIMESTAMP_STRUCT*)buf)->hour = rnd.rand_long(0,24);
+    ((TIMESTAMP_STRUCT*)buf)->minute = rnd.rand_long(0,60);
+    ((TIMESTAMP_STRUCT*)buf)->second = rnd.rand_long(0,60);
+    ((TIMESTAMP_STRUCT*)buf)->fraction = 0;
+    return true;
+}
+
 NumericSeqFiller::NumericSeqFiller(const std::string& spec)
     : Filler(spec) {
     gLog.log<Log::DEBUG>("NumericSeqFiller spec:", spec, "\n");
@@ -303,6 +325,10 @@ void MapFeederFactory::create(size_t num, std::vector<std::unique_ptr<Feeder>> &
         else if (rule == "DBLRAND") {
             for (size_t i = 0; i < num; ++i)
                 fillersVec[i].push_back(std::unique_ptr<Filler>{new DoubleRandFiller{ leftspec }});
+        }
+        else if (rule == "TSRAND") {
+            for (size_t i = 0; i < num; ++i)
+                fillersVec[i].push_back(std::unique_ptr<Filler>{new TimeStampRandFiller{ leftspec }});
         }
         else {
             std::cerr << "unsupported rule:" << rule << std::endl;
